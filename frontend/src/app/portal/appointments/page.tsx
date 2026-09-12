@@ -185,14 +185,13 @@ export default function PortalAppointmentsPage() {
   // table itself became server-paginated.
   const tabCounts = useMemo(() => {
     if (!allAppointments)
-      return { all: 0, today: 0, upcoming: 0, completed: 0, cancelled: 0 };
+      return { all: 0, today: 0, upcoming: 0, previous: 0 };
     const now = new Date();
     const counts = {
       all: allAppointments.length,
       today: 0,
       upcoming: 0,
-      completed: 0,
-      cancelled: 0,
+      previous: 0,
     };
     for (const a of allAppointments) {
       for (const t of TABS) {
