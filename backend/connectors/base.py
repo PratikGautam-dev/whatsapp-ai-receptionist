@@ -128,6 +128,7 @@ class Connector(abc.ABC):
     def create_booking(
         self, hospital_id: int, phone: str, department_id: str, doctor_id: str | None, scheduled_at: datetime,
         source: str = "whatsapp", patient_name: str | None = None, patient_date_of_birth: str | None = None,
+        patient_gender: str | None = None,
         patient_id: int | None = None, appointment_type_id: str | None = None,
         consent_given_at: str | None = None,
         diagnostic_test_id: int | None = None,
@@ -233,7 +234,8 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_procedure_booking(
         self, hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
-        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_id: int | None = None,
+        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_gender: str | None = None,
+        patient_id: int | None = None,
         procedure_order_reference: str | None = None,
     ) -> Appointment: ...
 
@@ -242,7 +244,8 @@ class Connector(abc.ABC):
     @abc.abstractmethod
     def create_procedure_request(
         self, hospital_id: int, phone: str, procedure_id: int,
-        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_id: int | None = None,
+        patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_gender: str | None = None,
+        patient_id: int | None = None,
         procedure_order_reference: str | None = None,
     ) -> Appointment: ...
 
@@ -363,7 +366,7 @@ class _UnimplementedTierConnector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         self._not_implemented("is_pincode_serviceable")
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_date_of_birth=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         self._not_implemented("create_booking")
 
     def set_appointment_lab_order_details(self, hospital_id, appointment_id, collection_method, collection_address, collection_pincode, home_collection_charge, basket_items):
@@ -384,10 +387,10 @@ class _UnimplementedTierConnector(Connector):
     def get_procedure_available_slots(self, hospital_id, procedure_id):
         self._not_implemented("get_procedure_available_slots")
 
-    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, procedure_order_reference=None):
         self._not_implemented("create_procedure_booking")
 
-    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, procedure_order_reference=None):
         self._not_implemented("create_procedure_request")
 
     def confirm_procedure_appointment(self, hospital_id, appointment_id, scheduled_at):

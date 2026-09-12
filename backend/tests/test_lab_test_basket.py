@@ -396,6 +396,33 @@ def test_lab_status_advances_forward_only_never_directly_to_report_ready(hospita
     assert resp.status_code == 400
 
 
+def test_bookings_lab_status_filter_is_independent_of_booking_status(hospital_id):
+    """The portal's Diagnostic & lab appointments page now filters Booking
+    Status and Lab Status separately (two columns, two FilterSelects) --
+    confirms GET /api/portal/bookings?lab_status= scopes correctly and
+    doesn't require `status` to also be set."""
+    _set_hospital_creds(hospital_id, password="labstatusfilter-pw", phone_number_id="pn3", access_token="tok3")
+    token = _login("labstatusfilter-pw")
+
+    appt_id = _create_lab_appointment(hospital_id, "+15551239999")
+    other_appt_id = _create_lab_appointment(hospital_id, "+15551238888")
+    resp = client.post(f"/api/portal/bookings/{appt_id}/lab-status", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["appointment"]["lab_status"] == "sample_collected"
+
+    resp = client.get("/api/portal/bookings?lab_status=sample_collected", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    ids = {a["id"] for a in resp.json()["appointments"]}
+    assert appt_id in ids
+    assert other_appt_id not in ids
+
+    resp = client.get("/api/portal/bookings?lab_status=booked", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    ids = {a["id"] for a in resp.json()["appointments"]}
+    assert other_appt_id in ids
+    assert appt_id not in ids
+
+
 def test_diagnostic_status_advances_straight_to_processing_skipping_sample_collection(hospital_id):
     """Diagnostics/imaging (MRI, CT Scan, ...) shares the exact same
     lab_status lifecycle/endpoint as Lab Test -- it just skips the physical

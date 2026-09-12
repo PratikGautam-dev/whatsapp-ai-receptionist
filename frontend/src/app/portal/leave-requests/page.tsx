@@ -135,21 +135,16 @@ export default function LeaveRequestsPage() {
                       </Button>
                     </div>
 
-                    {rows.length === 0 ? (
-                      <p className="py-space-4 text-center text-[13px] text-ink-400">No leave requests yet.</p>
-                    ) : filteredRows.length === 0 ? (
-                      <p className="py-space-4 text-center text-[13px] text-ink-400">No requests match your search/filter.</p>
-                    ) : (
-                      <DataTable
-                        columns={columns}
-                        data={filteredRows}
-                        getRowId={(r) => String(r.id)}
-                        onRowClick={(r) => setSelectedId(r.id)}
-                        rowClassName={(r) => (r.id === selected?.id ? "bg-brand-50" : "")}
-                        pageSize={10}
-                        pageSizeOptions={[10, 25, 50]}
-                      />
-                    )}
+                    <DataTable
+                      columns={columns}
+                      data={filteredRows}
+                      getRowId={(r) => String(r.id)}
+                      onRowClick={(r) => setSelectedId(r.id)}
+                      rowClassName={(r) => (r.id === selected?.id ? "bg-brand-50" : "")}
+                      pageSize={10}
+                      pageSizeOptions={[10, 25, 50]}
+                      emptyMessage={rows.length === 0 ? "No leave requests yet." : "No requests match your search/filter."}
+                    />
                   </>
                 )}
               </Card>

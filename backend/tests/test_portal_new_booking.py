@@ -302,12 +302,37 @@ def test_staff_booking_via_api_succeeds_and_appears_in_bookings_and_dashboard(ho
     bookings = client.get("/api/portal/bookings", headers=headers).json()["appointments"]
     assert any(a["phone"] == "5497771234" and a["source"] == "staff" for a in bookings)
 
-    dashboard = client.get("/api/portal/dashboard", headers=headers).json()
-    assert any(a["phone"] == "5497771234" for a in dashboard["recent_appointments"])
+    # The dashboard's appointments table is today-only (not just "latest
+    # N") -- only assert it shows up there if the next available slot this
+    # test booked actually happened to land on today's date.
+    if datetime.fromisoformat(slot["id"]).date() == datetime.now().date():
+        dashboard = client.get("/api/portal/dashboard", headers=headers).json()
+        assert any(a["phone"] == "5497771234" for a in dashboard["today_appointments"])
 
     appt = next(a for a in db.get_all_appointments_for_hospital(hospital_id) if a.phone == "5497771234")
     assert appt.source == "staff"
     assert appt.department_id == "cardiology"
+
+
+def test_staff_booking_via_api_persists_patient_dob_and_gender(hospital_id):
+    """The portal's booking dialogs now collect DOB/gender as mandatory
+    fields -- confirms they actually reach the patient record via
+    _upsert_patient, not just accepted and silently dropped."""
+    doctor_id = "doc_card_1"
+    slot = db.get_slots(hospital_id, doctor_id)[0]
+    headers = _login(hospital_id, "newbook-dob-gender-pw")
+
+    resp = client.post("/api/portal/new-booking", json={
+        "patient_name": "Dob Gender Patient", "patient_phone": "5497779999",
+        "patient_date_of_birth": "1990-05-15", "patient_gender": "Female",
+        "department_id": "cardiology", "doctor_id": doctor_id, "slot_id": slot["id"],
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    patient = db.get_patient_by_phone(hospital_id, "5497779999")
+    assert patient is not None
+    assert patient["date_of_birth"] == "1990-05-15"
+    assert patient["gender"] == "Female"
 
 
 def test_staff_booking_via_api_rejected_when_slot_already_taken(hospital_id):

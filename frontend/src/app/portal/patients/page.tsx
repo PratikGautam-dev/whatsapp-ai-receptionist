@@ -155,41 +155,41 @@ export default function PortalPatientsPage() {
             />
           </div>
 
-          {!patients ? (
-            <p className="text-[13px] text-ink-400">Loading…</p>
-          ) : patients.length === 0 ? (
-            <div className="py-space-6 text-center">
-              <UserRound size={28} className="mx-auto mb-space-2 text-ink-300" />
-              <p className="text-[13px] text-ink-400">
-                {search ? "No patients match that search." : "No patients yet — they appear here after a first booking."}
-              </p>
+          <div className="grid grid-cols-1 items-start gap-space-4 xl:grid-cols-1">
+            <div className="xl:col-span-2">
+              <DataTable
+                columns={columns}
+                data={filteredPatients}
+                getRowId={(p) => String(p.id)}
+                onRowClick={selectPatient}
+                // rowClassName={(p) => (p.id === selectedPatient?.id ? "bg-brand-50" : "")}
+                enableColumnVisibility
+                tableId="patients"
+                pageSize={10}
+                pageSizeOptions={[10, 25, 50, 100]}
+                loading={!patients}
+                emptyMessage={
+                  patients && patients.length > 0 ? (
+                    "No patients match your filters."
+                  ) : (
+                    <div className="py-space-2 text-center">
+                      <UserRound size={28} className="mx-auto mb-space-2 text-ink-300" />
+                      <p className="text-[13px] text-ink-400">
+                        {search ? "No patients match that search." : "No patients yet — they appear here after a first booking."}
+                      </p>
+                    </div>
+                  )
+                }
+              />
             </div>
-          ) : filteredPatients.length === 0 ? (
-            <p className="py-space-4 text-center text-[13px] text-ink-400">No patients match your filters.</p>
-          ) : (
-            <div className="grid grid-cols-1 items-start gap-space-4 xl:grid-cols-1">
-              <div className="xl:col-span-2">
-                <DataTable
-                  columns={columns}
-                  data={filteredPatients}
-                  getRowId={(p) => String(p.id)}
-                  onRowClick={selectPatient}
-                  // rowClassName={(p) => (p.id === selectedPatient?.id ? "bg-brand-50" : "")}
-                  enableColumnVisibility
-                  tableId="patients"
-                  pageSize={10}
-                  pageSizeOptions={[10, 25, 50, 100]}
-                />
-              </div>
-              {/* <div>
-                <PatientDetailPanel
-                  patient={selectedPatient}
-                  index={Math.max(selectedIndex, 0)}
-                  onBookAppointment={() => setBookingOpen(true)}
-                />
-              </div> */}
-            </div>
-          )}
+            {/* <div>
+              <PatientDetailPanel
+                patient={selectedPatient}
+                index={Math.max(selectedIndex, 0)}
+                onBookAppointment={() => setBookingOpen(true)}
+              />
+            </div> */}
+          </div>
         </Card>
 
         <ConfirmDialog

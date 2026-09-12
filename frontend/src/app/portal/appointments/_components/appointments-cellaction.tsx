@@ -1,6 +1,6 @@
 "use client";
 
-import { Beaker, CalendarClock, Check, Eye, MoreHorizontal, Send, Trash2, UserX, XCircle } from "lucide-react";
+import { Beaker, CalendarClock, Check, Download, Eye, MoreHorizontal, Send, Trash2, Upload, UserX, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
@@ -83,6 +83,16 @@ export function AppointmentCellAction({
             <DropdownMenuItem onClick={() => router.push(`/portal/appointments/${a.id}`)}>
               <Eye size={14} /> View Details
             </DropdownMenuItem>
+            {a.lab_status && (
+              <>
+                <DropdownMenuItem disabled title="Coming soon — no report-download endpoint scoped to a booking yet">
+                  <Download size={14} /> Download report
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled title="Coming soon — report upload exists on a patient's own page, not scoped to a booking yet">
+                  <Upload size={14} /> Upload report
+                </DropdownMenuItem>
+              </>
+            )}
             {a.status === "booked" ? (
               <>
                 {onAttendance && (

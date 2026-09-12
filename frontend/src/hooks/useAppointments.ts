@@ -44,6 +44,11 @@ export type Appointment = {
   procedure_estimated_price_max: number | null;
   procedure_order_reference: string | null;
   procedure_reschedule_requested_at: string | null;
+  // Daycare/Procedure rebuild: which concrete bed/chair/equipment/staff this
+  // booking is bound to -- empty for every non-procedure appointment (and
+  // for one not yet CONFIRMED, since resources are only reserved at that
+  // point).
+  procedure_resources: { id: number; resource_id: number; resource_type: string; resource_name: string }[];
 };
 
 export type Department = { id: string; name: string };
@@ -70,19 +75,20 @@ export type NewBookingContext = {
   resources: Resource[];
 };
 
-/** Fetches available slots for exactly ONE doctor or ONE resource (pass
- * exactly one), grouped by date -- the lazy counterpart to the context
- * endpoint above. Shared by every consumer that used to read
- * ctx.slots_by_doctor[id]/slots_by_resource[id] out of the old eager
- * all-at-once context: NewBookingDialog/NewTestBookingDialog (via their own
- * hooks), RescheduleDialog (below), and the patient page's follow-up
- * "Book now" panel (usePatientDetail.ts). */
+/** Fetches available slots for exactly ONE doctor, ONE resource, or ONE
+ * (instant-booking) procedure (pass exactly one), grouped by date -- the
+ * lazy counterpart to the context endpoint above. Shared by every consumer
+ * that used to read ctx.slots_by_doctor[id]/slots_by_resource[id] out of
+ * the old eager all-at-once context: NewBookingDialog/NewTestBookingDialog/
+ * NewDaycareBookingDialog (via their own hooks), RescheduleDialog (below),
+ * and the patient page's follow-up "Book now" panel (usePatientDetail.ts). */
 export async function fetchSlotsByDate(
-  router: ReturnType<typeof useRouter>, opts: { doctorId?: string; resourceId?: string },
+  router: ReturnType<typeof useRouter>, opts: { doctorId?: string; resourceId?: string; procedureId?: string },
 ): Promise<SlotsByDate | null> {
   const params = new URLSearchParams();
   if (opts.doctorId) params.set("doctor_id", opts.doctorId);
   if (opts.resourceId) params.set("diagnostic_test_id", opts.resourceId);
+  if (opts.procedureId) params.set("procedure_id", opts.procedureId);
   const result = await portalFetch(`/api/portal/new-booking/slots?${params.toString()}`);
   if (!result.ok) {
     if (result.unauthorized) router.push("/portal/login");
@@ -105,13 +111,15 @@ export const TYPE_LABELS: Record<string, string> = {
   daycare: "Daycare",
 };
 
-// Mirrors backend/db/repositories/appointment_types.py's
-// BOOK_DOCTOR_APPOINTMENT_CATEGORY/TESTS_DIAGNOSTICS_CATEGORY -- the same
-// 3-way split the WhatsApp booking menu and the portal sidebar (Doctor
-// appointments / Diagnostic & lab / Report review) both use. Scoping by
-// category now happens server-side (get_appointments_page's own `category`
-// param) -- this type just labels which scope a page's hook call wants.
-export type AppointmentCategory = "all" | "doctor" | "diagnostic";
+// Mirrors backend/db/repositories/appointments.py's own
+// _apply_category_filter -- "doctor"/"diagnostic" is the same 2-way split
+// the WhatsApp booking menu and the portal sidebar (Doctor appointments /
+// Diagnostic & lab / Report review) use; "daycare" is its own further split
+// out of what used to be lumped into "diagnostic" (Daycare/Procedure
+// rebuild), since it now has its own sidebar section. Scoping by category
+// happens server-side (get_appointments_page's own `category` param) --
+// this type just labels which scope a page's hook call wants.
+export type AppointmentCategory = "all" | "doctor" | "diagnostic" | "daycare";
 
 // Shared vocabulary for every list page's tab pills (appointments/page.tsx's
 // Today/Upcoming/Completed/Cancelled, diagnostic/page.tsx's own
@@ -121,12 +129,20 @@ export type AppointmentCategory = "all" | "doctor" | "diagnostic";
 // a tab to server params (rather than filtering the loaded page client-side,
 // like both pages used to) is what keeps a tab pill meaning "every matching
 // row", not just whichever ones landed on the current 10-row page.
-export type AppointmentTab = "all" | "today" | "upcoming" | "completed" | "cancelled" | "pending" | "diagnostics" | "lab";
+export type AppointmentTab =
+  | "all" | "today" | "upcoming" | "previous"
+  | "completed" | "cancelled" | "pending" | "diagnostics" | "lab";
 
 function tabToServerParams(tab: string): { status?: string; type?: string; when?: string } {
   switch (tab as AppointmentTab) {
     case "today": return { when: "today" };
     case "upcoming": return { when: "upcoming" };
+    // Same "attended, regardless of date" meaning as "completed" below --
+    // "previous" is the Doctor/Diagnostic & lab pages' shared All/Today/
+    // Upcoming/Previous tab set replacing the old, more granular per-page
+    // tab lists (completed/cancelled/pending/diagnostics/lab, still kept
+    // here for whichever page hasn't moved onto that shared set yet).
+    case "previous": return { status: "attended" };
     case "completed": return { status: "attended" };
     case "cancelled": return { status: "cancelled" };
     case "pending": return { status: "booked" };
@@ -134,6 +150,20 @@ function tabToServerParams(tab: string): { status?: string; type?: string; when?
     case "lab": return { type: "lab" };
     default: return {};
   }
+}
+
+/** Combines modeFilter (Doctor appointments page's own "all"/"walk_in"/
+ * "tele" split) with typeFilter (new/followup/tele) into the single `type`
+ * query value get_appointments_page() understands -- a bare value for an
+ * exact match, or a comma-separated pair for "walk_in"'s "not tele" (which
+ * has no single appointment_type_id of its own). typeFilter, when it isn't
+ * "all", already narrows to one specific type and takes precedence -- mode
+ * only fills in the gap typeFilter left at "all". */
+function resolveTypeParam(mode: string, type: string): string {
+  if (type !== "all") return type;
+  if (mode === "walk_in") return "new,followup";
+  if (mode === "tele") return "tele";
+  return "";
 }
 
 /** Loads + owns every mutation on the /portal/appointments list -- cancel,
@@ -185,28 +215,78 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  // Diagnostic & lab appointments page only -- independent of statusFilter
+  // above (Booking Status vs. Lab Status are now two separate columns/
+  // filters, not one merged "Status" cell). Harmless no-op for every other
+  // page's hook call, which just never sets it away from "all".
+  const [labStatusFilter, setLabStatusFilter] = useState("all");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [appliedStatus, setAppliedStatus] = useState("all");
   const [appliedType, setAppliedType] = useState("all");
+  const [appliedLabStatus, setAppliedLabStatus] = useState("all");
 
-  const applyFilters = useCallback(() => {
-    setAppliedSearch(searchQuery.trim());
-    setAppliedStatus(statusFilter);
-    setAppliedType(typeFilter);
+  // "all" | "walk_in" | "tele" -- Doctor appointments page's own coarser
+  // split on top of typeFilter's new/followup/tele. "walk_in" means
+  // new+followup together (there's no single appointment_type_id for
+  // "not tele"); "tele" is just the "tele" type again, but as its own mode
+  // rather than a Type-dropdown pick, so the two combine to one server
+  // query instead of the frontend trying to run two competing type filters.
+  //
+  // Unlike search/status/type above, this isn't staged behind Apply -- it
+  // lives in the page header as its own action (not the filter toolbar), so
+  // picking it refetches immediately. One state, not a draft+applied pair.
+  const [modeFilter, setModeFilterState] = useState("all");
+  const setModeFilter = useCallback((next: string) => {
+    setModeFilterState(next);
+    // A "tele" type pick only makes sense for mode "all" -- both the
+    // Type dropdown's own options and any already-applied type value
+    // must drop it once a mode is chosen, or the two would disagree
+    // about whether tele rows should show.
+    if (next !== "all") {
+      setTypeFilter((current) => (current === "tele" ? "all" : current));
+      setAppliedType((current) => (current === "tele" ? "all" : current));
+    }
     setPage(1);
-  }, [searchQuery, statusFilter, typeFilter]);
+  }, []);
+
+  // `overrides` lets a caller (e.g. a quick-action shortcut like "View
+  // pending reports") apply a specific status/type immediately instead of
+  // relying on the user having already picked it in the FilterSelect draft
+  // first -- setting the draft state and calling applyFilters() right after
+  // wouldn't work, since this closure still sees the OLD draft value until
+  // the next render. Passing it here updates draft + applied together in
+  // one go.
+  const applyFilters = useCallback((overrides?: { search?: string; status?: string; type?: string; labStatus?: string }) => {
+    const nextSearch = overrides?.search ?? searchQuery;
+    const nextStatus = overrides?.status ?? statusFilter;
+    const nextType = overrides?.type ?? typeFilter;
+    const nextLabStatus = overrides?.labStatus ?? labStatusFilter;
+    if (overrides?.search !== undefined) setSearchQuery(nextSearch);
+    if (overrides?.status !== undefined) setStatusFilter(nextStatus);
+    if (overrides?.type !== undefined) setTypeFilter(nextType);
+    if (overrides?.labStatus !== undefined) setLabStatusFilter(nextLabStatus);
+    setAppliedSearch(nextSearch.trim());
+    setAppliedStatus(nextStatus);
+    setAppliedType(nextType);
+    setAppliedLabStatus(nextLabStatus);
+    setPage(1);
+  }, [searchQuery, statusFilter, typeFilter, labStatusFilter]);
 
   const resetFilters = useCallback(() => {
     setSearchQuery("");
     setStatusFilter("all");
     setTypeFilter("all");
+    setLabStatusFilter("all");
+    setModeFilterState("all");
     setAppliedSearch("");
     setAppliedStatus("all");
     setAppliedType("all");
+    setAppliedLabStatus("all");
     setPage(1);
   }, []);
 
-  const filtersDirty = searchQuery.trim() !== appliedSearch || statusFilter !== appliedStatus || typeFilter !== appliedType;
+  const filtersDirty = searchQuery.trim() !== appliedSearch || statusFilter !== appliedStatus || typeFilter !== appliedType ||
+    labStatusFilter !== appliedLabStatus;
 
   // A tab pill switch changes which rows exist at all -- staying on page 3
   // of the old tab would otherwise render an empty table under the new one.
@@ -218,7 +298,9 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setPage(1);
   }
 
-  const queryKey = ["portal-bookings", category, page, appliedSearch, appliedStatus, appliedType, tab] as const;
+  const queryKey = [
+    "portal-bookings", category, page, appliedSearch, appliedStatus, appliedType, appliedLabStatus, modeFilter, tab,
+  ] as const;
 
   const {
     data, isFetching, error: queryError, refetch,
@@ -232,9 +314,10 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       if (category !== "all") params.set("category", category);
       const tabParams = tabToServerParams(tab);
       const status = tabParams.status || (appliedStatus !== "all" ? appliedStatus : "");
-      const type = tabParams.type || (appliedType !== "all" ? appliedType : "");
+      const type = tabParams.type || resolveTypeParam(modeFilter, appliedType);
       if (status) params.set("status", status);
       if (type) params.set("type", type);
+      if (appliedLabStatus !== "all") params.set("lab_status", appliedLabStatus);
       if (tabParams.when) params.set("when", tabParams.when);
       if (appliedSearch) params.set("search", appliedSearch);
       const result = await portalFetch(`/api/portal/bookings?${params.toString()}`);
@@ -331,7 +414,7 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     setProcedureActionId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/procedure/approve`, { method: "POST" });
     setProcedureActionId(null);
-    if (result.ok) load();
+    if (afterAction(result, "Request approved", "Couldn't approve request")) load();
   }
   async function handleRejectProcedureRequest(id: number, reason?: string) {
     setProcedureActionId(id);
@@ -341,29 +424,32 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
       body: JSON.stringify({ reason: reason || "" }),
     });
     setProcedureActionId(null);
-    if (result.ok) load();
+    if (afterAction(result, "Request rejected", "Couldn't reject request")) load();
   }
-  async function handleAdvanceProcedureStatus(id: number) {
+  // `status` lets a caller force the explicit CANCELLED branch the backend
+  // route accepts (valid from any non-terminal procedure_status) --
+  // omitted, it just advances one step forward (CONFIRMED -> COMPLETED).
+  async function handleAdvanceProcedureStatus(id: number, status?: "CANCELLED") {
     setProcedureActionId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/procedure/advance-status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(status ? { status } : {}),
     });
     setProcedureActionId(null);
-    if (result.ok) load();
+    if (afterAction(result, status === "CANCELLED" ? "Booking cancelled" : "Marked completed", "Couldn't update status")) load();
   }
   async function handleApproveProcedureReschedule(id: number) {
     setProcedureActionId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/approve`, { method: "POST" });
     setProcedureActionId(null);
-    if (result.ok) load();
+    if (afterAction(result, "Reschedule approved", "Couldn't approve reschedule")) load();
   }
   async function handleRejectProcedureReschedule(id: number) {
     setProcedureActionId(id);
     const result = await portalFetch(`/api/portal/bookings/${id}/procedure/reschedule-request/reject`, { method: "POST" });
     setProcedureActionId(null);
-    if (result.ok) load();
+    if (afterAction(result, "Reschedule rejected", "Couldn't reject reschedule")) load();
   }
 
   // Item 3 (Spec.md Section 0): soft-delete only, per this project's
@@ -510,6 +596,8 @@ export function useAppointments(ready: boolean, category: AppointmentCategory = 
     appointments, allAppointments, error, load, isFetching,
     page, setPage, total, pageSize: PAGE_SIZE,
     searchQuery, setSearchQuery, statusFilter, setStatusFilter, typeFilter, setTypeFilter,
+    labStatusFilter, setLabStatusFilter,
+    modeFilter, setModeFilter,
     applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,

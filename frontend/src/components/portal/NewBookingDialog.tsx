@@ -6,6 +6,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { useNewBooking } from "@/hooks/useNewBooking";
+import { GENDER_VALUES } from "@/lib/validation/patientInfo";
 
 type NewBookingDialogProps = {
   open: boolean;
@@ -30,6 +31,7 @@ export function NewBookingDialog({
   const {
     ctx, error, errors, submitting, success,
     patientName, setPatientName, patientPhone, setPatientPhone,
+    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
     departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
     doctors, datesForDoctor, slotsForDate, slotsLoading,
     handleSubmit,
@@ -52,11 +54,49 @@ export function NewBookingDialog({
         ) : (
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
-              <Field label="Patient name (optional)" htmlFor="patient_name">
-                <Input id="patient_name" value={patientName} onChange={(e) => setPatientName(e.target.value)} />
+              <Field label="Patient name" htmlFor="patient_name" required>
+                <Input id="patient_name" required value={patientName} onChange={(e) => setPatientName(e.target.value)} />
               </Field>
               <Field label="Patient phone" htmlFor="patient_phone" required>
-                <Input id="patient_phone" required value={patientPhone} onChange={(e) => setPatientPhone(e.target.value)} />
+                <Input
+                  id="patient_phone"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit mobile number"
+                  required
+                  value={patientPhone}
+                  onChange={(e) => setPatientPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 gap-x-space-4 md:grid-cols-2">
+              <Field label="Date of birth" htmlFor="patient_dob" required>
+                <Input
+                  id="patient_dob"
+                  type="date"
+                  required
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={patientDateOfBirth}
+                  onChange={(e) => setPatientDateOfBirth(e.target.value)}
+                />
+              </Field>
+              <Field label="Gender" htmlFor="patient_gender" required>
+                <select
+                  id="patient_gender"
+                  required
+                  value={patientGender}
+                  onChange={(e) => setPatientGender(e.target.value)}
+                  className="h-11 w-full rounded-md border border-line bg-card px-space-3 text-[14px] text-ink-900"
+                >
+                  <option value="">Choose…</option>
+                  {GENDER_VALUES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
               </Field>
             </div>
 

@@ -203,14 +203,6 @@ export function DepartmentsTab() {
     );
   }
 
-  if (!departments) {
-    return (
-      <Card className="p-space-6">
-        <p className="text-center text-[13px] text-ink-400">Loading…</p>
-      </Card>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-space-4">
       <div className="grid grid-cols-1 gap-space-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -254,23 +246,21 @@ export function DepartmentsTab() {
               <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
             </div>
 
-            {filtered.length === 0 ? (
-              <p className="py-space-4 text-center text-[13px] text-ink-400">No departments match your search/filters.</p>
-            ) : (
-              <DataTable
-                columns={createDepartmentColumns({
-                  onSelect: (d) => setSelectedId(d.id),
-                  onEdit: openEditDialog,
-                  onToggleActive: handleToggleActive,
-                })}
-                data={filtered}
-                getRowId={(d) => d.id}
-                onRowClick={(d) => setSelectedId(d.id)}
-                rowClassName={(d) => (d.id === selected?.id ? "bg-brand-50" : "")}
-                pageSize={10}
-                pageSizeOptions={[10, 25, 50]}
-              />
-            )}
+            <DataTable
+              columns={createDepartmentColumns({
+                onSelect: (d) => setSelectedId(d.id),
+                onEdit: openEditDialog,
+                onToggleActive: handleToggleActive,
+              })}
+              data={filtered}
+              getRowId={(d) => d.id}
+              onRowClick={(d) => setSelectedId(d.id)}
+              rowClassName={(d) => (d.id === selected?.id ? "bg-brand-50" : "")}
+              pageSize={10}
+              pageSizeOptions={[10, 25, 50]}
+              loading={!departments}
+              emptyMessage={departments && departments.length > 0 ? "No departments match your search/filters." : "No departments yet."}
+            />
           </Card>
         </div>
 

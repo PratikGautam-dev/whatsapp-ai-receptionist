@@ -13,6 +13,7 @@ from sqlalchemy.engine import CursorResult
 from db.connection import IntegrityError, get_connection, get_session
 from db.display_ids import _generate_reference_id
 from db.repositories.appointment_types import BOOK_DOCTOR_APPOINTMENT_CATEGORY, TESTS_DIAGNOSTICS_CATEGORY
+from db.repositories.patients import _flag_duplicate_if_matches
 from db.models import (
     Appointment, DuplicateBookingError, QuotaExceededError,
     SOURCE_WHATSAPP, STATUS_ATTENDED, STATUS_BOOKED, STATUS_CANCELLED, STATUS_NO_SHOW, STATUS_RESCHEDULED,
@@ -66,11 +67,13 @@ def _appointment_select_stmt():
 
 # --- Appointments ---
 
-def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, date_of_birth: str | None = None) -> dict:
-    """Keeps `patients` in sync on every booking. name/date_of_birth passed
-    in wins; missing ones keep the existing value (never clobbered to
-    NULL). Returns {id, name, date_of_birth, patient_display_id} -- the
-    display id is only generated once, on first creation.
+def _upsert_patient(
+    conn, hospital_id: int, phone: str, name: str | None, date_of_birth: str | None = None, gender: str | None = None,
+) -> dict:
+    """Keeps `patients` in sync on every booking. name/date_of_birth/gender
+    passed in wins; missing ones keep the existing value (never clobbered to
+    NULL). Returns {id, name, date_of_birth, gender, patient_display_id} --
+    the display id is only generated once, on first creation.
 
     No UNIQUE(hospital_id, phone) constraint anymore (multi-profile support),
     so this is an explicit lookup-then-update-or-insert guarded by a session-
@@ -94,33 +97,39 @@ def _upsert_patient(conn, hospital_id: int, phone: str, name: str | None, date_o
     conn.execute("SELECT pg_advisory_lock(hashtext(?))", (f"upsert_patient|{hospital_id}|{phone}",))
     try:
         existing = conn.execute(
-            "SELECT id, name, date_of_birth, patient_display_id, mrn FROM patients "
+            "SELECT id, name, date_of_birth, gender, patient_display_id, mrn FROM patients "
             "WHERE hospital_id = ? AND phone = ? ORDER BY id LIMIT 1",
             (hospital_id, phone),
         ).fetchone()
         if existing is not None:
             resolved_name = name if name is not None else existing["name"]
             resolved_dob = date_of_birth if date_of_birth is not None else existing["date_of_birth"]
+            resolved_gender = gender if gender is not None else existing["gender"]
             conn.execute(
-                "UPDATE patients SET name = ?, date_of_birth = ? WHERE id = ?",
-                (resolved_name, resolved_dob, existing["id"]),
+                "UPDATE patients SET name = ?, date_of_birth = ?, gender = ? WHERE id = ?",
+                (resolved_name, resolved_dob, resolved_gender, existing["id"]),
             )
             return {
-                "id": existing["id"], "name": resolved_name, "date_of_birth": resolved_dob,
+                "id": existing["id"], "name": resolved_name, "date_of_birth": resolved_dob, "gender": resolved_gender,
                 "patient_display_id": existing["patient_display_id"], "mrn": existing["mrn"],
             }
         row = conn.execute(
-            "INSERT INTO patients (hospital_id, phone, name, date_of_birth) VALUES (?, ?, ?, ?) "
-            "RETURNING id, name, date_of_birth",
-            (hospital_id, phone, name, date_of_birth),
+            "INSERT INTO patients (hospital_id, phone, name, date_of_birth, gender) VALUES (?, ?, ?, ?, ?) "
+            "RETURNING id, name, date_of_birth, gender",
+            (hospital_id, phone, name, date_of_birth, gender),
         ).fetchone()
         assert row is not None  # INSERT ... RETURNING always returns the inserted row
         display_id, mrn = _generate_patient_identifiers(conn, hospital_id)
         conn.execute(
             "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, row["id"]),
         )
+        # Possible-duplicate review flag (Section 0 follow-up) -- only on
+        # this fresh-INSERT branch, never the lookup-and-UPDATE branch above
+        # (that row's identity is already settled). See patients.py's
+        # _flag_duplicate_if_matches() for the matching rules.
+        _flag_duplicate_if_matches(conn, hospital_id, row["id"], name, phone, date_of_birth, gender)
         return {
-            "id": row["id"], "name": row["name"], "date_of_birth": row["date_of_birth"],
+            "id": row["id"], "name": row["name"], "date_of_birth": row["date_of_birth"], "gender": row["gender"],
             "patient_display_id": display_id, "mrn": mrn,
         }
     finally:
@@ -136,6 +145,7 @@ def create_appointment(
     source: str = SOURCE_WHATSAPP,
     patient_name: str | None = None,
     patient_date_of_birth: str | None = None,
+    patient_gender: str | None = None,
     patient_id: int | None = None,
     exclude_appointment_id: int | None = None,
     appointment_type_id: str | None = None,
@@ -235,7 +245,7 @@ def create_appointment(
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
         patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth, patient_gender)
 
     # Fixed internal literal ("doctor_id"/"diagnostic_test_id"), never user
     # input -- safe to interpolate into the raw SQL below.
@@ -476,7 +486,7 @@ def set_lab_status(hospital_id: int, appointment_id: int, lab_status: str) -> Ap
 def create_procedure_appointment(
     hospital_id: int, phone: str, procedure_id: int, scheduled_at: datetime,
     patient_id: int | None = None, patient_name: str | None = None, patient_date_of_birth: str | None = None,
-    procedure_order_reference: str | None = None,
+    patient_gender: str | None = None, procedure_order_reference: str | None = None,
 ) -> Appointment:
     """Daycare/Procedure rebuild, instant-booking path (Step 4 straight
     through to a real slot). A procedure binds N resources (bed/chair +
@@ -507,7 +517,7 @@ def create_procedure_appointment(
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
         patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth, patient_gender)
 
     conn.execute("BEGIN")
     try:
@@ -550,7 +560,8 @@ def create_procedure_appointment(
 
 def create_procedure_request(
     hospital_id: int, phone: str, procedure_id: int, patient_id: int | None = None,
-    patient_name: str | None = None, patient_date_of_birth: str | None = None, procedure_order_reference: str | None = None,
+    patient_name: str | None = None, patient_date_of_birth: str | None = None, patient_gender: str | None = None,
+    procedure_order_reference: str | None = None,
 ) -> Appointment:
     """Approval-required path (Step 3): a plain INSERT, no advisory lock
     needed -- no resource is reserved yet, no slot chosen yet. scheduled_at
@@ -581,7 +592,7 @@ def create_procedure_request(
             raise ValueError(f"patient_id {patient_id} not found for hospital {hospital_id}")
         patient = {"id": patient_row["id"], "name": patient_row["name"], "date_of_birth": patient_row["date_of_birth"]}
     else:
-        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth)
+        patient = _upsert_patient(conn, hospital_id, phone, patient_name, patient_date_of_birth, patient_gender)
 
     now = datetime.now()
     cur = conn.execute(
@@ -935,17 +946,45 @@ def get_all_appointments_for_hospital(hospital_id: int, limit: int = 500) -> lis
     return [_row_to_appointment(r._mapping) for r in rows]
 
 
+def get_todays_appointments_for_hospital(hospital_id: int, now: datetime | None = None) -> list[Appointment]:
+    """Hospital-wide counterpart to get_doctor_appointments_today() -- every
+    appointment (any status) across all doctors with scheduled_at falling on
+    today, no limit. Backs the /api/portal/dashboard "Today's appointments"
+    table, which shows the day's full schedule, not just the latest N
+    bookings."""
+    now = now or datetime.now()
+    day_start = datetime.combine(now.date(), datetime.min.time()).isoformat()
+    day_end = datetime.combine(now.date(), datetime.max.time()).isoformat()
+    session = get_session()
+    rows = session.execute(
+        _appointment_select_stmt()
+        .where(
+            AppointmentRow.hospital_id == hospital_id,
+            AppointmentRow.scheduled_at >= day_start, AppointmentRow.scheduled_at <= day_end,
+        )
+        .order_by(AppointmentRow.scheduled_at.asc())
+    ).all()
+    return [_row_to_appointment(r._mapping) for r in rows]
+
+
 def _apply_category_filter(stmt, category: str | None):
     """Shared by get_appointments_page()/get_appointments_for_month() --
-    "doctor" | "diagnostic", mirroring the frontend's own matchesCategory()
-    (useAppointments.ts). "doctor" also includes legacy rows with no
-    appointment_type_id at all (they predate the column)."""
+    "doctor" | "diagnostic" | "daycare", mirroring the frontend's own
+    matchesCategory() (useAppointments.ts). "doctor" also includes legacy
+    rows with no appointment_type_id at all (they predate the column).
+    "daycare" is its own category, fully split out of "diagnostic" -- the
+    portal's Daycare appointments page is its own sidebar section, so
+    "diagnostic" here excludes it (unlike TESTS_DIAGNOSTICS_CATEGORY, which
+    still includes "daycare" for the unrelated WhatsApp-menu grouping that
+    constant otherwise serves -- not reused as-is here for that reason)."""
     if category == "doctor":
         return stmt.where(
             or_(AppointmentRow.appointment_type_id.is_(None), AppointmentRow.appointment_type_id.in_(BOOK_DOCTOR_APPOINTMENT_CATEGORY))
         )
     elif category == "diagnostic":
-        return stmt.where(AppointmentRow.appointment_type_id.in_(TESTS_DIAGNOSTICS_CATEGORY))
+        return stmt.where(AppointmentRow.appointment_type_id.in_(TESTS_DIAGNOSTICS_CATEGORY - {"daycare"}))
+    elif category == "daycare":
+        return stmt.where(AppointmentRow.appointment_type_id == "daycare")
     return stmt
 
 
@@ -983,6 +1022,7 @@ def get_appointments_page(
     category: str | None = None,
     status: str | None = None,
     appointment_type_id: str | None = None,
+    lab_status: str | None = None,
     when: str | None = None,
     search: str | None = None,
     page: int = 1,
@@ -991,8 +1031,16 @@ def get_appointments_page(
     """Server-side paginated + filtered list for the /api/portal/bookings
     list endpoint -- unlike get_all_appointments_for_hospital/
     get_doctor_appointments above (still used unfiltered for the dashboard's
-    "recent" widget and tests), category/status/appointment_type_id/search
-    are all applied here, in SQL, before paging.
+    "recent" widget and tests), category/status/appointment_type_id/
+    lab_status/search are all applied here, in SQL, before paging.
+
+    `lab_status` is independent of `status` -- the Diagnostic & lab
+    appointments page now shows Booking Status (this `status` column) and
+    Lab Status (report lifecycle: booked/sample_collected/processing/
+    report_ready) as two separate columns/filters, so a caller can filter on
+    either one without the other implicitly narrowing it (unlike the old
+    single merged "Status" column/cell, which only showed lab_status for a
+    still-'booked' row).
 
     `category` ("doctor" | "diagnostic") mirrors the frontend's own
     matchesCategory() (useAppointments.ts) -- "doctor" also includes legacy
@@ -1012,8 +1060,19 @@ def get_appointments_page(
     stmt = _apply_category_filter(stmt, category)
     if status:
         stmt = stmt.where(AppointmentRow.status == status)
+    if lab_status:
+        stmt = stmt.where(AppointmentRow.lab_status == lab_status)
     if appointment_type_id:
-        stmt = stmt.where(AppointmentRow.appointment_type_id == appointment_type_id)
+        # Comma-separated accepts more than one type in one call -- the
+        # Doctor appointments page's "Walk-in Appointment" mode filter sends
+        # "new,followup" together (there's no single appointment_type_id
+        # value meaning "not tele"), while every other caller still just
+        # sends one bare value and gets the exact-match it always did.
+        types = [t for t in appointment_type_id.split(",") if t]
+        stmt = stmt.where(
+            AppointmentRow.appointment_type_id == types[0] if len(types) == 1
+            else AppointmentRow.appointment_type_id.in_(types)
+        )
     # `when` backs the appointments/diagnostic pages' "Today"/"Upcoming" tab
     # pills -- moved server-side (from the pages' old client-side matchesTab())
     # so a tab pill still means "all matching rows", not just whichever ones

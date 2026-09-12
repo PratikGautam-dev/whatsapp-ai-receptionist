@@ -6,13 +6,23 @@ import { cn } from "@/lib/cn";
 import { formatShortDateTime, formatTimeOnly } from "@/lib/formatDate";
 import type { Appointment } from "@/hooks/useAppointments";
 import { AppointmentCellAction } from "./appointments-cellaction";
-import { AVATAR_TINTS, initials, STATUS_LABELS, STATUS_STYLES } from "./appointments-columns";
+import {
+  AVATAR_TINTS,
+  initials,
+  STATUS_LABELS,
+  STATUS_STYLES,
+} from "./appointments-columns";
 
-const TEST_TYPE_LABELS: Record<string, string> = { diagnostic: "Diagnostics", lab: "Lab Test", daycare: "Daycare / Procedure" };
+// Daycare/procedure bookings have their own separate sidebar section
+// (category "diagnostic" excludes them server-side) -- this table only ever
+// renders diagnostic/lab rows, so no "daycare" entry here.
+const TEST_TYPE_LABELS: Record<string, string> = {
+  diagnostic: "Diagnostics",
+  lab: "Lab Test",
+};
 const TEST_TYPE_STYLES: Record<string, string> = {
   diagnostic: "bg-brand-50 text-brand-700",
   lab: "bg-clay-100 text-clay-700",
-  daycare: "bg-black/4 text-ink-600",
 };
 
 // The finer-grained progress a resource-bound (Lab Test OR Diagnostics) row
@@ -23,10 +33,13 @@ const TEST_TYPE_STYLES: Record<string, string> = {
 // with no lab_status at all (e.g. one predating this, or a doctor
 // consultation) falls back to the plain booked/attended/cancelled status
 // below instead of a fabricated stage.
-const LAB_STAGE_LABELS: Record<string, string> = {
-  booked: "Pending", sample_collected: "Sample Collected", processing: "Processing", report_ready: "Completed",
+export const LAB_STAGE_LABELS: Record<string, string> = {
+  booked: "Pending",
+  sample_collected: "Sample Collected",
+  processing: "Processing",
+  report_ready: "Completed",
 };
-const LAB_STAGE_STYLES: Record<string, string> = {
+export const LAB_STAGE_STYLES: Record<string, string> = {
   booked: "bg-clay-100 text-clay-700",
   sample_collected: "bg-brand-50 text-brand-700",
   processing: "bg-brand-50 text-brand-700",
@@ -53,9 +66,11 @@ type CreateDiagnosticColumnsOptions = {
 
 /** Column definitions for /portal/appointments/diagnostic -- mirrors
  * appointments-columns.tsx's shape (same Appointment rows, same
- * AppointmentCellAction) but for resource-bound (diagnostic/lab/daycare)
- * bookings: Test/Procedure instead of Doctor, a Type pill instead of an
- * icon+label, and a status cell that reads lab_status when one exists. */
+ * AppointmentCellAction) but for resource-bound (diagnostic/lab) bookings:
+ * Test/Procedure instead of Doctor, a Type pill instead of an icon+label,
+ * and Booking Status/Lab Status as two separate columns (the
+ * base booked/attended/cancelled status, and the independent report-
+ * lifecycle stage) instead of one merged "Status" cell. */
 export function createDiagnosticAppointmentColumns({
   selected,
   toggleSelected,
@@ -106,12 +121,24 @@ export function createDiagnosticAppointmentColumns({
       },
     },
     {
-      id: "scheduled_at",
-      header: "Booking time",
+      id: "reference_id",
+      header: "Appointment ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
+        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+          {row.original.reference_id || "—"}
+        </span>
       ),
     },
+    {
+      id: "scheduled_at",
+      header: "Appointment time",
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap tabular-nums text-ink-600">
+          {formatShortDateTime(row.original.scheduled_at)}
+        </span>
+      ),
+    },
+
     {
       id: "patient",
       header: "Patient",
@@ -128,8 +155,12 @@ export function createDiagnosticAppointmentColumns({
               {initials(a.patient_name, a.phone)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">{a.patient_name || a.phone}</p>
-              <p className="truncate text-[11.5px] text-ink-400">{a.patient_display_id || a.phone}</p>
+              <p className="truncate font-semibold text-ink-900">
+                {a.patient_name || a.phone}
+              </p>
+              <p className="truncate text-[11.5px] text-ink-400">
+                {a.patient_display_id || a.phone}
+              </p>
             </div>
           </div>
         );
@@ -138,7 +169,11 @@ export function createDiagnosticAppointmentColumns({
     {
       id: "diagnostic_test_name",
       header: "Test / Procedure",
-      cell: ({ row }) => <span className="text-ink-900">{row.original.diagnostic_test_name || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-900">
+          {row.original.diagnostic_test_name || "—"}
+        </span>
+      ),
     },
     {
       id: "type",
@@ -147,31 +182,54 @@ export function createDiagnosticAppointmentColumns({
         const a = row.original;
         const key = a.appointment_type_id || "other";
         return (
-          <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", TEST_TYPE_STYLES[key] || "bg-black/4 text-ink-600")}>
+          <span
+            className={cn(
+              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+              TEST_TYPE_STYLES[key] || "bg-black/4 text-ink-600",
+            )}
+          >
             {TEST_TYPE_LABELS[key] || "Other"}
           </span>
         );
       },
     },
     {
-      id: "status",
-      header: "Status",
+      id: "booking_status",
+      header: "Booking Status",
       cell: ({ row }) => {
         const a = row.original;
-        // Once resolved (attended/cancelled/no_show/rescheduled) the plain
-        // appointment status wins over lab_status -- a cancelled lab test
-        // shouldn't still read "Pending". Only a still-'booked' Lab Test row
-        // shows its finer lab_status stage.
-        if (a.status === "booked" && a.lab_status) {
-          return (
-            <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", LAB_STAGE_STYLES[a.lab_status] || "bg-black/4 text-ink-600")}>
-              {LAB_STAGE_LABELS[a.lab_status] || a.lab_status}
-            </span>
-          );
-        }
         return (
-          <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[a.status] || "bg-black/4 text-ink-600")}>
+          <span
+            className={cn(
+              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+              STATUS_STYLES[a.status] || "bg-black/4 text-ink-600",
+            )}
+          >
             {STATUS_LABELS[a.status] || a.status}
+          </span>
+        );
+      },
+    },
+    {
+      id: "lab_status",
+      header: "Lab Status",
+      // Independent of Booking Status now (its own column) -- a row keeps
+      // showing its report-lifecycle stage here even once cancelled/
+      // attended, rather than that column "winning" and hiding it, since a
+      // viewer scanning for "is the report ready" shouldn't have to also
+      // check what Booking Status says first. "—" for a doctor consultation
+      // (which never has a lab_status at all).
+      cell: ({ row }) => {
+        const a = row.original;
+        if (!a.lab_status) return <span className="text-ink-400">—</span>;
+        return (
+          <span
+            className={cn(
+              "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+              LAB_STAGE_STYLES[a.lab_status] || "bg-black/4 text-ink-600",
+            )}
+          >
+            {LAB_STAGE_LABELS[a.lab_status] || a.lab_status}
           </span>
         );
       },
@@ -182,7 +240,23 @@ export function createDiagnosticAppointmentColumns({
       // Real (department_name). Unlike the reference mockup's "Assigned
       // Department / Lab Room", no room-assignment concept exists anywhere
       // in this schema -- not shown, rather than invented.
-      cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {row.original.department_name || "—"}
+        </span>
+      ),
+    },
+    {
+      id: "created_at",
+      header: "Booked at",
+      cell: ({ row }) => {
+        const createdAt = row.original.created_at;
+        return (
+          <span className="whitespace-nowrap tabular-nums text-ink-600">
+            {createdAt ? formatShortDateTime(createdAt) : "—"}
+          </span>
+        );
+      },
     },
     {
       id: "actions",

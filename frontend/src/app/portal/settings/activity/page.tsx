@@ -58,15 +58,17 @@ export default function PortalActivityLogPage() {
         actions={<Button href="/portal/settings" variant="secondary"><ArrowLeft size={14} /> Back to settings</Button>}
       />
 
-      {entries === undefined ? (
-        <p className="text-[13px] text-ink-400">Loading…</p>
-      ) : entries === null ? (
+      {entries === null ? (
         <p className="text-[13px] text-ink-400">Activity log isn&apos;t available for your account type.</p>
-      ) : entries.length === 0 ? (
-        <p className="text-[13px] text-ink-400">No activity recorded yet.</p>
       ) : (
         <Card className="p-space-4">
-          <DataTable columns={columns} data={entries} getRowId={(e) => String(e.id)} />
+          <DataTable
+            columns={columns}
+            data={entries ?? []}
+            getRowId={(e) => String(e.id)}
+            loading={entries === undefined}
+            emptyMessage="No activity recorded yet."
+          />
         </Card>
       )}
     </PortalShell>

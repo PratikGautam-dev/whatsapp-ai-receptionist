@@ -191,19 +191,14 @@ export default function PortalDoctorsPage() {
                       </Button>
                     </div>
                   )}
-                  {doctors.length === 0 ? (
-                    <p className="py-space-4 text-center text-[13px] text-ink-400">No doctors yet.</p>
-                  ) : filteredDoctors.length === 0 ? (
-                    <p className="py-space-4 text-center text-[13px] text-ink-400">No doctors match your search/filter.</p>
-                  ) : (
-                    <DataTable
-                      columns={columns}
-                      data={filteredDoctors}
-                      getRowId={(d) => d.id}
-                      onRowClick={selectDoctor}
-                      rowClassName={(d) => (d.id === selectedDoctor?.id ? "bg-brand-50" : "")}
-                    />
-                  )}
+                  <DataTable
+                    columns={columns}
+                    data={filteredDoctors}
+                    getRowId={(d) => d.id}
+                    onRowClick={selectDoctor}
+                    rowClassName={(d) => (d.id === selectedDoctor?.id ? "bg-brand-50" : "")}
+                    emptyMessage={doctors.length === 0 ? "No doctors yet." : "No doctors match your search/filter."}
+                  />
                 </Card>
               </div>
 

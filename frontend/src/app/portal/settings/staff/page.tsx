@@ -126,53 +126,43 @@ export default function StaffManagementPage() {
                   </PermissionGate>
                 </div>
 
-                {!staff ? (
-                  <p className="text-[13px] text-ink-400">Loading…</p>
-                ) : staff.length === 0 ? (
-                  <p className="py-space-4 text-center text-[13px] text-ink-400">No staff members yet.</p>
-                ) : (
-                  <>
-                    <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
-                      <div className="relative min-w-50 flex-1">
-                        <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                        <input
-                          type="text"
-                          placeholder="Search by name, role, department or phone…"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
-                        />
-                      </div>
-                      <FilterSelect
-                        value={departmentFilter}
-                        onChange={setDepartmentFilter}
-                        allLabel="All Departments"
-                        options={departmentOptions}
-                      />
-                      <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
-                    </div>
+                <div className="mb-space-3 flex flex-wrap items-center gap-space-3">
+                  <div className="relative min-w-50 flex-1">
+                    <Search size={14} className="pointer-events-none absolute left-space-3 top-1/2 -translate-y-1/2 text-ink-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, role, department or phone…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="h-10 w-full rounded-md border border-line bg-card pl-space-8 pr-space-3 text-[13px] text-ink-900 outline-none focus:border-brand-400"
+                    />
+                  </div>
+                  <FilterSelect
+                    value={departmentFilter}
+                    onChange={setDepartmentFilter}
+                    allLabel="All Departments"
+                    options={departmentOptions}
+                  />
+                  <FilterSelect value={statusFilter} onChange={setStatusFilter} allLabel="All Status" options={STATUS_OPTIONS} />
+                </div>
 
-                    {filteredRows.length === 0 ? (
-                      <p className="py-space-4 text-center text-[13px] text-ink-400">No staff match your search/filters.</p>
-                    ) : (
-                      <DataTable
-                        columns={createStaffColumns({
-                          onSelect: (s) => setSelectedId(s.id),
-                          canManage,
-                          togglingId,
-                          onToggleActive: handleToggleActive,
-                          onResetPassword: openResetPassword,
-                        })}
-                        data={filteredRows}
-                        getRowId={(s) => String(s.id)}
-                        onRowClick={(s) => setSelectedId(s.id)}
-                        rowClassName={(s) => (s.id === selected?.id ? "bg-brand-50" : "")}
-                        pageSize={10}
-                        pageSizeOptions={[10, 25, 50]}
-                      />
-                    )}
-                  </>
-                )}
+                <DataTable
+                  columns={createStaffColumns({
+                    onSelect: (s) => setSelectedId(s.id),
+                    canManage,
+                    togglingId,
+                    onToggleActive: handleToggleActive,
+                    onResetPassword: openResetPassword,
+                  })}
+                  data={filteredRows}
+                  getRowId={(s) => String(s.id)}
+                  onRowClick={(s) => setSelectedId(s.id)}
+                  rowClassName={(s) => (s.id === selected?.id ? "bg-brand-50" : "")}
+                  pageSize={10}
+                  pageSizeOptions={[10, 25, 50]}
+                  loading={!staff}
+                  emptyMessage={staff && staff.length > 0 ? "No staff match your search/filters." : "No staff members yet."}
+                />
               </Card>
             </div>
 

@@ -33,6 +33,8 @@ export function useNewBooking(
 
   const [patientName, setPatientName] = useState("");
   const [patientPhone, setPatientPhone] = useState("");
+  const [patientDateOfBirth, setPatientDateOfBirth] = useState("");
+  const [patientGender, setPatientGender] = useState("");
   const [departmentId, setDepartmentIdRaw] = useState("");
   const [doctorId, setDoctorIdRaw] = useState("");
   const [date, setDateRaw] = useState("");
@@ -64,6 +66,8 @@ export function useNewBooking(
     setSuccess(false);
     setPatientName("");
     setPatientPhone("");
+    setPatientDateOfBirth("");
+    setPatientGender("");
     setDepartmentIdRaw("");
     setDoctorIdRaw("");
     setDateRaw("");
@@ -119,6 +123,8 @@ export function useNewBooking(
     const parsed = newBookingSchema.safeParse({
       patient_name: patientName,
       patient_phone: patientPhone,
+      patient_date_of_birth: patientDateOfBirth,
+      patient_gender: patientGender,
       department_id: departmentId,
       doctor_id: doctorId,
       slot_id: slotId,
@@ -157,6 +163,7 @@ export function useNewBooking(
   return {
     ctx, error, errors, submitting, success,
     patientName, setPatientName, patientPhone, setPatientPhone,
+    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
     departmentId, setDepartmentId, doctorId, setDoctorId, date, setDate, slotId, setSlotId,
     doctors, datesForDoctor, slotsForDate,
     // true while a doctor is picked but its slots haven't come back yet --

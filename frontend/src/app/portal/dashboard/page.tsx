@@ -4,8 +4,8 @@ import {
   Ban,
   CalendarClock,
   CalendarRange,
-  IndianRupee,
   ClipboardList,
+  Flag,
   Stethoscope,
   UserPlus,
   Users,
@@ -20,7 +20,7 @@ import { DoctorDashboardView } from "@/components/portal/DoctorDashboardView";
 import { PortalMiniCalendar } from "@/components/portal/PortalMiniCalendar";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { PortalTopBarActions } from "@/components/portal/PortalTopBarActions";
-import { RecentAppointmentsTable } from "@/components/portal/RecentAppointmentsTable";
+import { TodaysAppointmentsTable } from "@/components/portal/TodaysAppointmentsTable";
 import { StatTile } from "@/components/portal/StatTile";
 import { WeeklyTrendChart } from "@/components/portal/WeeklyTrendChart";
 import { usePortalDashboard } from "@/hooks/usePortalDashboard";
@@ -153,18 +153,18 @@ function HospitalDashboard() {
               tint="clay"
             />
             <StatTile
-              label="Revenue / collections"
+              label="Flagged patients"
               value={null}
               deltaPct={null}
-              hint="Billing isn't connected yet"
-              icon={IndianRupee}
-              tint="success"
+              hint="No flagging workflow yet"
+              icon={Flag}
+              tint="error"
             />
           </div>
 
           {/* Direct grid children (no space-y wrapper divs) so components
                 flow horizontally, row by row, via CSS Grid's own
-                auto-placement -- only RecentAppointmentsTable/
+                auto-placement -- only TodaysAppointmentsTable/
                 DashboardPendingApprovals are widened to 2 columns, every
                 other tile stays 1-wide and fills in around them. */}
           <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3 mb-space-4">
@@ -179,11 +179,11 @@ function HospitalDashboard() {
           <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-3">
             {/* Stacked in normal flow (space-y), not separate grid tracks --
                 so PendingApprovals/StaffAttendance always sit directly under
-                RecentAppointmentsTable and shift down as it grows, instead
+                TodaysAppointmentsTable and shift down as it grows, instead
                 of sitting in a fixed-height grid row with a gap underneath. */}
             <div className="space-y-space-4 lg:col-span-2">
-              <RecentAppointmentsTable
-                appointments={data.recent_appointments}
+              <TodaysAppointmentsTable
+                appointments={data.today_appointments}
               />
               <div className="grid grid-cols-1 items-start gap-space-4 lg:grid-cols-2">
                 <DashboardPendingApprovals className="h-62" />

@@ -26,7 +26,7 @@ export type DashboardData = {
   };
   weekly_counts: { date: string; label: string; count: number }[];
   department_breakdown: { department_name: string; count: number }[];
-  recent_appointments: {
+  today_appointments: {
     id: number;
     phone: string;
     patient_name: string | null;

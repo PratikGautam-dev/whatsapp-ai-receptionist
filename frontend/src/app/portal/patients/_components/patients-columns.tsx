@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Phone } from "lucide-react";
+import { Flag, Phone } from "lucide-react";
 import { AVATAR_TINTS } from "@/lib/avatarTints";
 import { formatDate } from "@/lib/formatDate";
 import { cn } from "@/lib/cn";
@@ -20,7 +20,11 @@ export function initials(name: string | null): string {
 // PATIENT_STATUSES) -- the table pill, the detail panel's badge, and the
 // Patients page's status filter all read these same two maps rather than
 // each hand-typing their own labels/colors.
-export const STATUS_LABELS: Record<Patient["status"], string> = { active: "Active", inactive: "Inactive", blocked: "Blocked" };
+export const STATUS_LABELS: Record<Patient["status"], string> = {
+  active: "Active",
+  inactive: "Inactive",
+  blocked: "Blocked",
+};
 export const STATUS_STYLES: Record<Patient["status"], string> = {
   active: "bg-success-tint text-success",
   inactive: "bg-black/4 text-ink-600",
@@ -29,7 +33,11 @@ export const STATUS_STYLES: Record<Patient["status"], string> = {
 
 // Mirrors backend's GENDER_OPTIONS (db/repositories/patients.py) -- same
 // values the demographics edit form already writes.
-export const GENDER_LABELS: Record<string, string> = { Male: "Male", Female: "Female", Other: "Other" };
+export const GENDER_LABELS: Record<string, string> = {
+  Male: "Male",
+  Female: "Female",
+  Other: "Other",
+};
 
 type CreatePatientColumnsOptions = {
   selected: Set<number>;
@@ -46,7 +54,12 @@ type CreatePatientColumnsOptions = {
  * or visit) -- this only ever renders the real active/inactive/blocked
  * enum, see the page's own note in docs/portal-ui-audit.md. */
 export function createPatientColumns({
-  selected, toggleSelected, toggleSelectAll, allSelected, onDelete, onSelect,
+  selected,
+  toggleSelected,
+  toggleSelectAll,
+  allSelected,
+  onDelete,
+  onSelect,
 }: CreatePatientColumnsOptions): ColumnDef<Patient>[] {
   return [
     {
@@ -85,13 +98,18 @@ export function createPatientColumns({
         </span>
       ),
     },
+
     {
       id: "name",
       header: "Name",
       cell: ({ row }) => {
         const p = row.original;
         return (
-          <button type="button" onClick={() => onSelect(p)} className="flex items-center gap-space-2 text-left">
+          <button
+            type="button"
+            onClick={() => onSelect(p)}
+            className="flex items-center gap-space-2 text-left"
+          >
             <span
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
@@ -100,7 +118,9 @@ export function createPatientColumns({
             >
               {initials(p.name)}
             </span>
-            <span className="truncate font-semibold text-ink-900">{p.name || "—"}</span>
+            <span className="truncate font-semibold text-ink-900">
+              {p.name || "—"}
+            </span>
           </button>
         );
       },
@@ -130,35 +150,65 @@ export function createPatientColumns({
     {
       id: "visit_count",
       header: "Total Booked",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.visit_count}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600 self-center">{row.original.visit_count}</span>
+      ),
     },
     {
       id: "visited_count",
       header: "Total Visited",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.visited_count}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{row.original.visited_count}</span>
+      ),
     },
     {
       id: "last_visit",
       header: "Last visit",
-      cell: ({ row }) => <span className="text-ink-600">{formatDate(row.original.last_visit)}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {formatDate(row.original.last_visit)}
+        </span>
+      ),
     },
     {
       id: "status",
       header: "Status",
       cell: ({ row }) => (
-        <span className={cn("rounded-full px-space-2 py-0.5 text-[11px] font-semibold", STATUS_STYLES[row.original.status])}>
+        <span
+          className={cn(
+            "rounded-full px-space-2 py-0.5 text-[11px] font-semibold",
+            STATUS_STYLES[row.original.status],
+          )}
+        >
           {STATUS_LABELS[row.original.status]}
         </span>
       ),
     },
     {
+      id: "duplicate_flag",
+      header: "Flagged",
+      // Possible-duplicate review flag -- purely informational for now (no
+      // merge/dismiss action yet), see usePatients.ts's own field comment.
+      // The full reason (which fields matched vs. differed) shows on hover
+      // rather than inline, so this column stays narrow.
+      cell: ({ row }) => {
+        const reason = row.original.duplicate_flag_reason;
+        if (!reason) return <span className="text-ink-300">—</span>;
+        return (
+          <span
+            title={reason}
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-error/10 px-space-2 py-0.5 text-[11px] font-semibold text-error"
+          >
+            <Flag size={11} /> Possible duplicate
+          </span>
+        );
+      },
+    },
+    {
       id: "actions",
-      enableHiding: false,
-      header: "",
+      header: "Actions",
       cell: ({ row }) => (
-        <div className="text-right">
-          <PatientCellAction patient={row.original} onDelete={onDelete} />
-        </div>
+        <PatientCellAction patient={row.original} onDelete={onDelete} />
       ),
     },
   ];

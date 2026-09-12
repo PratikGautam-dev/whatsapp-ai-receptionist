@@ -456,6 +456,17 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS mrn TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_patients_hospital_mrn
     ON patients(hospital_id, mrn) WHERE mrn IS NOT NULL;
 
+-- Possible-duplicate review flag (Section 0 follow-up, migration
+-- 5483e272c7c1): stamped once, at creation, when a new patients row
+-- matches another ACTIVE patient in the same hospital on at least 3 of
+-- {name, phone, date_of_birth, gender} -- see db/repositories/patients.py's
+-- _flag_duplicate_if_matches(). Purely informational for now (a column on
+-- the portal's patient list), no merge/dismiss workflow yet.
+-- duplicate_flag_reason is NULL exactly when duplicate_of_patient_id is.
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_of_patient_id INTEGER
+    REFERENCES patients(id) ON DELETE SET NULL;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_flag_reason TEXT;
+
 -- Patient identity SEPARATION (Spec.md Section 0, confirmed with the user via a
 -- reviewed plan before this touched production data): one WhatsApp number can
 -- now link up to 5 patient profiles (a shared family phone), so `patients` is no

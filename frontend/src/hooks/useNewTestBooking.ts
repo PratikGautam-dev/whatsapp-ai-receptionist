@@ -41,6 +41,8 @@ export function useNewTestBooking(
 
   const [patientName, setPatientName] = useState("");
   const [patientPhone, setPatientPhone] = useState("");
+  const [patientDateOfBirth, setPatientDateOfBirth] = useState("");
+  const [patientGender, setPatientGender] = useState("");
   const [selectedTestIds, setSelectedTestIds] = useState<number[]>([]);
   const [collectionMethod, setCollectionMethod] = useState<CollectionMethod | "">("");
   const [collectionAddress, setCollectionAddress] = useState("");
@@ -74,6 +76,8 @@ export function useNewTestBooking(
     setSuccess(false);
     setPatientName("");
     setPatientPhone("");
+    setPatientDateOfBirth("");
+    setPatientGender("");
     setSelectedTestIds([]);
     setCollectionMethod("");
     setCollectionAddress("");
@@ -137,6 +141,8 @@ export function useNewTestBooking(
     const parsed = newTestBookingSchema.safeParse({
       patient_name: patientName,
       patient_phone: patientPhone,
+      patient_date_of_birth: patientDateOfBirth,
+      patient_gender: patientGender,
       test_ids: selectedTestIds,
       slot_id: slotId,
       collection_method: category === "lab" && collectionMethod ? collectionMethod : undefined,
@@ -177,6 +183,7 @@ export function useNewTestBooking(
   return {
     ctx, error, errors, submitting, success,
     patientName, setPatientName, patientPhone, setPatientPhone,
+    patientDateOfBirth, setPatientDateOfBirth, patientGender, setPatientGender,
     selectedTestIds, selectedTests, category, toggleTest,
     collectionMethod, setCollectionMethod, collectionAddress, setCollectionAddress,
     collectionPincode, setCollectionPincode,

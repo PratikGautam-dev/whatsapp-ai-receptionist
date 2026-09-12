@@ -38,11 +38,11 @@ function dateKey(y: number, m: number, d: number) {
 
 type Props = {
   /** Scopes which appointments count toward a day's dot -- "doctor" for the
-   * Doctor appointments page, "diagnostic" for Diagnostic & lab, omitted
-   * (all types) for the Dashboard. Mirrors useAppointments' own
-   * AppointmentCategory / the backend's BOOK_DOCTOR_APPOINTMENT_CATEGORY /
-   * TESTS_DIAGNOSTICS_CATEGORY split. */
-  category?: "doctor" | "diagnostic";
+   * Doctor appointments page, "diagnostic" for Diagnostic & lab, "daycare"
+   * for Daycare appointments, omitted (all types) for the Dashboard. Mirrors
+   * useAppointments' own AppointmentCategory / the backend's
+   * _apply_category_filter split. */
+  category?: "doctor" | "diagnostic" | "daycare";
 };
 
 /** Real month-of-bookings calendar -- one fetch per month navigated to (not

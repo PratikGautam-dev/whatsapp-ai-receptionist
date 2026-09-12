@@ -29,7 +29,7 @@ portal/routes/doctors.py by checking db.get_doctor_full(hospital.id, doctor_id) 
 same pattern portal_create_doctor() already used for department_id.
 """
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -89,6 +89,24 @@ def _auth(token: str) -> dict:
 def _create_appointment(hospital_id: int, doctor_id: str, department_id: str, phone: str = "5490001111", patient_name=None):
     slot = db.get_slots(hospital_id, doctor_id)[0]
     scheduled_at = datetime.fromisoformat(slot["id"])
+    return db.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at, patient_name=patient_name)
+
+
+_create_appointment_today_call_count = 0
+
+
+def _create_appointment_today(hospital_id: int, doctor_id: str, department_id: str, phone: str = "5490001111", patient_name=None):
+    """Like _create_appointment(), but guaranteed to land on today's date --
+    db.get_slots()[0] (the next available slot) can legitimately fall on
+    tomorrow depending on the time of day the suite happens to run, which
+    would make a booking miss get_todays_appointments_for_hospital()'s
+    "today" window through no fault of whatever the test is actually
+    checking. An incrementing per-call minute offset, not a fixed one --
+    two calls close enough together to land in the same real-world minute
+    would otherwise collide on the partial unique booked-slot index."""
+    global _create_appointment_today_call_count
+    _create_appointment_today_call_count += 1
+    scheduled_at = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=_create_appointment_today_call_count)
     return db.create_appointment(hospital_id, phone, department_id, doctor_id, scheduled_at, patient_name=patient_name)
 
 
@@ -936,14 +954,14 @@ def test_bookings_calendar_scopes_by_month_category_and_hospital(two_hospitals):
 
 def test_dashboard_scoped_to_own_hospital_only(two_hospitals):
     a, b = two_hospitals["a"], two_hospitals["b"]
-    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
-    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490002222")
-    _create_appointment(b["id"], b["doctor_id"], b["department_id"], phone="5490003333")
+    _create_appointment_today(a["id"], a["doctor_id"], a["department_id"], phone="5490001111")
+    _create_appointment_today(b["id"], b["doctor_id"], b["department_id"], phone="5490002222")
+    _create_appointment_today(b["id"], b["doctor_id"], b["department_id"], phone="5490003333")
 
     resp = client.get("/api/portal/dashboard", headers=_auth(a["token"]))
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["recent_appointments"]) == 1
+    assert len(data["today_appointments"]) == 1
     assert data["recent_patients"] == [] or all(p["phone"] != "5490002222" for p in data["recent_patients"])
 
 
@@ -952,11 +970,11 @@ def test_dashboard_recent_appointments_includes_patient_name_when_on_file(two_ho
     was merged into Recent Appointments -- patient name must be inline on
     each row now, not just the phone number."""
     a = two_hospitals["a"]
-    _create_appointment(a["id"], a["doctor_id"], a["department_id"], phone="5490004444", patient_name="Merged Widget Patient")
+    _create_appointment_today(a["id"], a["doctor_id"], a["department_id"], phone="5490004444", patient_name="Merged Widget Patient")
 
     resp = client.get("/api/portal/dashboard", headers=_auth(a["token"]))
     assert resp.status_code == 200
-    row = next(r for r in resp.json()["recent_appointments"] if r["phone"] == "5490004444")
+    row = next(r for r in resp.json()["today_appointments"] if r["phone"] == "5490004444")
     assert row["patient_name"] == "Merged Widget Patient"
 
 

@@ -137,10 +137,11 @@ class Tier1Connector(Connector):
     def is_pincode_serviceable(self, hospital_id, pincode):
         return repo.is_pincode_serviceable(hospital_id, pincode)
 
-    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_date_of_birth=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
+    def create_booking(self, hospital_id, phone, department_id, doctor_id, scheduled_at, source="whatsapp", patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, appointment_type_id=None, consent_given_at=None, diagnostic_test_id=None, diagnostic_test_label=None, diagnostic_price=None):
         return repo.create_appointment(
             hospital_id, phone, department_id, doctor_id, scheduled_at,
-            source=source, patient_name=patient_name, patient_date_of_birth=patient_date_of_birth, patient_id=patient_id,
+            source=source, patient_name=patient_name, patient_date_of_birth=patient_date_of_birth,
+            patient_gender=patient_gender, patient_id=patient_id,
             appointment_type_id=appointment_type_id, consent_given_at=consent_given_at,
             diagnostic_test_id=diagnostic_test_id,
             diagnostic_test_label=diagnostic_test_label,
@@ -241,16 +242,18 @@ class Tier1Connector(Connector):
         cache_set_json(cache_key, slots, ttl_seconds=_SLOTS_CACHE_TTL_SECONDS)
         return slots
 
-    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_booking(self, hospital_id, phone, procedure_id, scheduled_at, patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, procedure_order_reference=None):
         return repo.create_procedure_appointment(
             hospital_id, phone, procedure_id, scheduled_at, patient_id=patient_id,
-            patient_name=patient_name, patient_date_of_birth=patient_date_of_birth, procedure_order_reference=procedure_order_reference,
+            patient_name=patient_name, patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
+            procedure_order_reference=procedure_order_reference,
         )
 
-    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_date_of_birth=None, patient_id=None, procedure_order_reference=None):
+    def create_procedure_request(self, hospital_id, phone, procedure_id, patient_name=None, patient_date_of_birth=None, patient_gender=None, patient_id=None, procedure_order_reference=None):
         return repo.create_procedure_request(
             hospital_id, phone, procedure_id, patient_id=patient_id,
-            patient_name=patient_name, patient_date_of_birth=patient_date_of_birth, procedure_order_reference=procedure_order_reference,
+            patient_name=patient_name, patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
+            procedure_order_reference=procedure_order_reference,
         )
 
     def confirm_procedure_appointment(self, hospital_id, appointment_id, scheduled_at):

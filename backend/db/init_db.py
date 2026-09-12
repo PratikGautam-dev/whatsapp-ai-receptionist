@@ -1522,6 +1522,14 @@ def init_db_on_connection(conn) -> int:
     conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS show_on_frontend BOOLEAN NOT NULL DEFAULT TRUE")
     conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS online_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE")
     conn.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS whatsapp_booking_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+    # Migration 5483e272c7c1: patients.duplicate_of_patient_id/
+    # duplicate_flag_reason -- possible-duplicate review flag, stamped once
+    # at creation by db/repositories/patients.py's _flag_duplicate_if_matches().
+    conn.execute(
+        "ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_of_patient_id INTEGER "
+        "REFERENCES patients(id) ON DELETE SET NULL"
+    )
+    conn.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS duplicate_flag_reason TEXT")
     conn.commit()
     _settings = get_settings()
     hospital_name = _settings.HOSPITAL_NAME

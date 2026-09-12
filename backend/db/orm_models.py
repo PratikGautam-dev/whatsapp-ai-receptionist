@@ -710,6 +710,15 @@ class PatientRow(Base):
     status: Mapped[str]
     patient_display_id: Mapped[str | None]
     mrn: Mapped[str | None]
+    # Possible-duplicate review flag (Section 0 follow-up): stamped once, at
+    # creation, when this row matches another ACTIVE patient in this
+    # hospital on at least 3 of {name, phone, date_of_birth, gender} -- see
+    # db/repositories/patients.py's _flag_duplicate_if_matches(). Purely
+    # informational for now (surfaced as a column on the portal's patient
+    # list, no merge/dismiss action yet); duplicate_flag_reason is None
+    # exactly when duplicate_of_patient_id is None.
+    duplicate_of_patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"))
+    duplicate_flag_reason: Mapped[str | None]
 
 
 class PatientLink(Base):

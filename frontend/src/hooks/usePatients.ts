@@ -21,6 +21,14 @@ export type Patient = {
    * status) -- null for a patient who has never had one booked. */
   department_name: string | null;
   doctor_name: string | null;
+  // Possible-duplicate review flag (Section 0 follow-up): stamped once, at
+  // creation, when this patient matched another ACTIVE patient on at least
+  // 3 of {name, phone, date_of_birth, gender} -- see backend's
+  // db/repositories/patients.py _flag_duplicate_if_matches(). Purely
+  // informational (no merge/dismiss action yet); duplicate_flag_reason is
+  // null exactly when duplicate_of_patient_id is.
+  duplicate_of_patient_id: number | null;
+  duplicate_flag_reason: string | null;
 };
 
 const NEW_REGISTRATION_WINDOW_DAYS = 7;

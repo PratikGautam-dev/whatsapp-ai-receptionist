@@ -350,6 +350,99 @@ def test_approval_queue_lists_only_open_requests(hospital_id):
     assert requested.id not in {a["id"] for a in resp2.json()["appointments"]}
 
 
+def test_bookings_category_daycare_scopes_to_procedure_appointments_only(hospital_id):
+    """The portal's own Daycare appointments page (category=daycare) is a
+    full split out of category=diagnostic (its own separate sidebar
+    section) -- confirms _apply_category_filter's new branch actually scopes
+    GET /api/portal/bookings to just these rows, and that neither the
+    "doctor" nor the "diagnostic" category (the Diagnostic & lab page) picks
+    it up too."""
+    procedure = _create_approval_procedure(hospital_id)
+    _set_hospital_password(hospital_id, "adminpass")
+    requested = db.create_procedure_request(hospital_id, PHONE, procedure["id"], patient_name="Test", patient_date_of_birth=30)
+    token = _login("adminpass")
+
+    resp = client.get("/api/portal/bookings?category=daycare", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["appointments"][0]["id"] == requested.id
+
+    resp2 = client.get("/api/portal/bookings?category=doctor", headers=_auth(token))
+    assert resp2.status_code == 200, resp2.text
+    assert requested.id not in {a["id"] for a in resp2.json()["appointments"]}
+
+    resp3 = client.get("/api/portal/bookings?category=diagnostic", headers=_auth(token))
+    assert resp3.status_code == 200, resp3.text
+    assert requested.id not in {a["id"] for a in resp3.json()["appointments"]}
+
+
+def test_new_daycare_booking_instant_procedure_books_a_real_slot(hospital_id):
+    """Portal-side sibling of the WhatsApp instant-booking path -- staff can
+    book a walk-in daycare/procedure appointment straight away (no approval
+    step) via POST /api/portal/new-daycare-booking, same as
+    portal_create_new_test_booking already does for diagnostic/lab."""
+    procedure = _create_instant_procedure(hospital_id)
+    _set_hospital_password(hospital_id, "adminpass")
+    token = _login("adminpass")
+
+    slots_resp = client.get(
+        f"/api/portal/new-booking/slots?procedure_id={procedure['id']}", headers=_auth(token),
+    )
+    assert slots_resp.status_code == 200, slots_resp.text
+    slots_by_date = slots_resp.json()["slots_by_date"]
+    first_slot_id = next(iter(slots_by_date.values()))[0]["id"]
+
+    resp = client.post(
+        "/api/portal/new-daycare-booking",
+        headers=_auth(token),
+        json={"patient_name": "Walk-in Patient", "patient_phone": "5490009999", "procedure_id": procedure["id"], "slot_id": first_slot_id},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["procedure_status"] == "CONFIRMED"
+
+    created = next(a for a in db.get_all_appointments_for_hospital(hospital_id) if a.phone == "5490009999")
+    assert created.procedure_id == procedure["id"]
+    assert created.scheduled_at.isoformat() == first_slot_id
+
+
+def test_new_daycare_booking_approval_required_procedure_creates_a_request(hospital_id):
+    """The approval-required path takes no slot at all -- it lands in the
+    Daycare page's own approval queue (procedure_status REQUESTED) instead
+    of being immediately scheduled."""
+    procedure = _create_approval_procedure(hospital_id)
+    _set_hospital_password(hospital_id, "adminpass")
+    token = _login("adminpass")
+
+    resp = client.post(
+        "/api/portal/new-daycare-booking",
+        headers=_auth(token),
+        json={"patient_name": "Request Patient", "patient_phone": "5490008888", "procedure_id": procedure["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["procedure_status"] == "REQUESTED"
+
+    queue = client.get("/api/portal/procedure-approval-queue", headers=_auth(token)).json()["appointments"]
+    assert any(a["phone"] == "5490008888" for a in queue)
+
+
+def test_new_daycare_booking_rejects_missing_slot_for_instant_procedure(hospital_id):
+    procedure = _create_instant_procedure(hospital_id)
+    _set_hospital_password(hospital_id, "adminpass")
+    token = _login("adminpass")
+
+    resp = client.post(
+        "/api/portal/new-daycare-booking",
+        headers=_auth(token),
+        json={"patient_name": "Test", "patient_phone": "5490007777", "procedure_id": procedure["id"]},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "slot" in resp.json()["errors"][0].lower()
+
+
 # --- Request Reschedule (approval-required procedures only) ---
 
 @pytest.mark.asyncio

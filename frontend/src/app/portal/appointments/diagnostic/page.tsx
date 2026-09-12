@@ -6,7 +6,6 @@ import {
   CalendarPlus,
   ClipboardList,
   FileClock,
-  FilePlus2,
   FileText,
   Search,
   Send,
@@ -33,24 +32,35 @@ import { cn } from "@/lib/cn";
 import { formatHeaderDate } from "@/lib/formatDate";
 import { type Appointment, TYPE_LABELS, useAppointments } from "@/hooks/useAppointments";
 import { STATUS_LABELS } from "../_components/appointments-columns";
-import { createDiagnosticAppointmentColumns } from "../_components/diagnostic-appointments-columns";
+import { createDiagnosticAppointmentColumns, LAB_STAGE_LABELS } from "../_components/diagnostic-appointments-columns";
 import { RescheduleDialog } from "../_components/RescheduleDialog";
 
-// This page is diagnostic-appointments-only (see useAppointments(ready,
-// "diagnostic") below) -- restricted to just those 3 types, same scoping
-// reasoning as that hook call's own comment.
-const TEST_TYPE_OPTIONS = (["diagnostic", "lab", "daycare"] as const).map((value) => ({ value, label: TYPE_LABELS[value] }));
+// This page is diagnostic/lab-appointments-only (see useAppointments(ready,
+// "diagnostic") below) -- daycare/procedure bookings have their own
+// separate sidebar section and are excluded server-side (category
+// "diagnostic" no longer includes them), so they're not offered as a Type
+// filter option here either.
+const TEST_TYPE_OPTIONS = (["diagnostic", "lab"] as const).map((value) => ({ value, label: TYPE_LABELS[value] }));
 const APPOINTMENT_STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
+// Independent of APPOINTMENT_STATUS_OPTIONS above (Booking Status vs. Lab
+// Status are now two separate columns/filters, see diagnostic-appointments-
+// columns.tsx's own split) -- the report lifecycle a Lab Test/Diagnostics
+// row moves through before its report is ready.
+const LAB_STATUS_OPTIONS = Object.entries(LAB_STAGE_LABELS).map(([value, label]) => ({ value, label }));
 
-type Tab = "all" | "diagnostics" | "lab" | "completed" | "pending" | "cancelled";
+// Same All/Today/Upcoming/Previous tab set the Doctor appointments page
+// uses (frontend/src/app/portal/appointments/page.tsx) -- replaces the old,
+// more granular Diagnostics/Lab tests/Completed/Pending/Cancelled tabs,
+// which are still reachable here, just as the Type/Status FilterSelects
+// below rather than their own tab pills (Diagnostics/Lab tests = Type
+// filter; Completed/Pending/Cancelled = Status filter).
+type Tab = "all" | "today" | "upcoming" | "previous";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "all", label: "All bookings" },
-  { id: "diagnostics", label: "Diagnostics" },
-  { id: "lab", label: "Lab tests" },
-  { id: "completed", label: "Completed" },
-  { id: "pending", label: "Pending" },
-  { id: "cancelled", label: "Cancelled" },
+  { id: "all", label: "All" },
+  { id: "today", label: "Today" },
+  { id: "upcoming", label: "Upcoming" },
+  { id: "previous", label: "Previous" },
 ];
 
 function isSameDate(iso: string, ref: Date): boolean {
@@ -58,16 +68,11 @@ function isSameDate(iso: string, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 }
 
-function matchesTab(a: Appointment, tab: Tab): boolean {
+function matchesTab(a: Appointment, tab: Tab, now: Date): boolean {
   switch (tab) {
-    case "diagnostics": return a.appointment_type_id === "diagnostic";
-    case "lab": return a.appointment_type_id === "lab";
-    case "completed": return a.status === "attended";
-    // "Still open" -- anything not yet resolved either way, regardless of
-    // date (there's no separate "pending confirmation" concept here, unlike
-    // the mockup's per-row Pending pill, which this reuses for the tab).
-    case "pending": return a.status === "booked";
-    case "cancelled": return a.status === "cancelled";
+    case "today": return isSameDate(a.scheduled_at, now);
+    case "upcoming": return a.status === "booked" && new Date(a.scheduled_at) > now;
+    case "previous": return a.status === "attended";
     default: return true;
   }
 }
@@ -87,6 +92,7 @@ export default function PortalDiagnosticAppointmentsPage() {
     page, setPage, total, pageSize,
     searchQuery, setSearchQuery,
     statusFilter, setStatusFilter, typeFilter, setTypeFilter,
+    labStatusFilter, setLabStatusFilter,
     applyFilters, resetFilters, filtersDirty,
     cancellingId, cancelPanelId, cancelMessage, setCancelMessage, openCancelPanel, closeCancelPanel, handleCancel,
     reschedulePanelId, reschedulingId, rescheduleSlotsByDate, rescheduleErrors, rescheduleMessage, setRescheduleMessage,
@@ -111,11 +117,12 @@ export default function PortalDiagnosticAppointmentsPage() {
   // whole dataset to compute their numbers from, same as before the table
   // itself became server-paginated.
   const tabCounts = useMemo(() => {
-    if (!allAppointments) return { all: 0, diagnostics: 0, lab: 0, completed: 0, pending: 0, cancelled: 0 };
-    const counts = { all: allAppointments.length, diagnostics: 0, lab: 0, completed: 0, pending: 0, cancelled: 0 };
+    if (!allAppointments) return { all: 0, today: 0, upcoming: 0, previous: 0 };
+    const now = new Date();
+    const counts = { all: allAppointments.length, today: 0, upcoming: 0, previous: 0 };
     for (const a of allAppointments) {
       for (const t of TABS) {
-        if (t.id !== "all" && matchesTab(a, t.id)) counts[t.id]++;
+        if (t.id !== "all" && matchesTab(a, t.id, now)) counts[t.id]++;
       }
     }
     return counts;
@@ -226,13 +233,6 @@ export default function PortalDiagnosticAppointmentsPage() {
 
   const quickActions: QuickAction[] = [
     { label: "New test booking", icon: CalendarPlus, onClick: () => setNewTestBookingOpen(true) },
-    {
-      label: "Upload lab report",
-      icon: UploadCloud,
-      disabled: true,
-      title: "Coming soon — report upload exists on a patient's own page, not scoped to a booking yet",
-    },
-    { label: "View pending reports", icon: FilePlus2, onClick: () => setTab("pending") },
     { label: "Generate test report", icon: FileText, disabled: true, title: "Coming soon" },
   ];
 
@@ -326,32 +326,36 @@ export default function PortalDiagnosticAppointmentsPage() {
                 allLabel="All Status"
                 options={APPOINTMENT_STATUS_OPTIONS}
               />
+              <FilterSelect
+                value={labStatusFilter}
+                onChange={setLabStatusFilter}
+                allLabel="All Lab Status"
+                options={LAB_STATUS_OPTIONS}
+              />
               <FilterActions
                 onApply={applyFilters}
                 onReset={resetFilters}
-                showReset={filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all"}
+                showReset={filtersDirty || !!searchQuery || statusFilter !== "all" || typeFilter !== "all" || labStatusFilter !== "all"}
               />
             </div>
 
             <Card className="p-space-4">
               <h3 className="text-label mb-space-3 font-bold text-ink-900">Test appointments &amp; bookings</h3>
-              {!appointments ? (
-                <p className="py-space-4 text-center text-[13px] text-ink-400">Loading…</p>
-              ) : allAppointments && allAppointments.length === 0 ? (
-                <p className="py-space-4 text-center text-[13px] text-ink-400">No diagnostic or lab bookings yet.</p>
-              ) : total === 0 ? (
-                <p className="py-space-4 text-center text-[13px] text-ink-400">No bookings match your search/filter.</p>
-              ) : (
-                <DataTable
-                  columns={columns}
-                  data={appointments}
-                  getRowId={(a) => String(a.id)}
-                  isRowExpanded={(a) => cancelPanelId === a.id}
-                  renderRowDetail={renderRowDetail}
-                  pagination={{ page, limit: pageSize, total }}
-                  onPageChange={setPage}
-                />
-              )}
+              <DataTable
+                columns={columns}
+                data={appointments ?? []}
+                getRowId={(a) => String(a.id)}
+                isRowExpanded={(a) => cancelPanelId === a.id}
+                renderRowDetail={renderRowDetail}
+                pagination={{ page, limit: pageSize, total }}
+                onPageChange={setPage}
+                loading={!appointments}
+                emptyMessage={
+                  allAppointments && allAppointments.length === 0
+                    ? "No diagnostic or lab bookings yet."
+                    : "No bookings match your search/filter."
+                }
+              />
             </Card>
           </div>
 
@@ -359,7 +363,17 @@ export default function PortalDiagnosticAppointmentsPage() {
             <Card className="p-space-4">
               <div className="mb-space-3 flex items-center justify-between">
                 <h3 className="text-label font-bold text-ink-900">Today&apos;s lab queue</h3>
-                <button type="button" onClick={() => setTab("lab")} className="text-[12px] font-semibold text-brand-600 hover:underline">
+                <button
+                  type="button"
+                  // No "lab" tab anymore -- "Today" + the Type filter set to
+                  // Lab Test together cover the same "today's lab bookings"
+                  // scope the old tab did.
+                  onClick={() => {
+                    setTab("today");
+                    applyFilters({ type: "lab" });
+                  }}
+                  className="text-[12px] font-semibold text-brand-600 hover:underline"
+                >
                   View all →
                 </button>
               </div>

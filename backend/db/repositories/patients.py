@@ -132,6 +132,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
         select(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
             PatientRow.date_of_birth, PatientRow.gender, PatientRow.status, PatientRow.created_at,
+            PatientRow.duplicate_of_patient_id, PatientRow.duplicate_flag_reason,
             last_visit.label("last_visit"), visit_count.label("visit_count"),
             visited_count.label("visited_count"), last_visit_department.label("department_name"),
             last_visit_doctor.label("doctor_name"),
@@ -145,6 +146,7 @@ def _patients_with_visit_stats_stmt(hospital_id: int, search: str | None = None)
         .group_by(
             PatientRow.id, PatientRow.phone, PatientRow.name, PatientRow.patient_display_id, PatientRow.mrn,
             PatientRow.date_of_birth, PatientRow.gender, PatientRow.status, PatientRow.created_at,
+            PatientRow.duplicate_of_patient_id, PatientRow.duplicate_flag_reason,
         )
         .order_by(last_visit.desc().nulls_last(), PatientRow.name.nulls_last(), PatientRow.phone)
     )
@@ -170,6 +172,7 @@ def list_patients(hospital_id: int, search: str | None = None, limit: int = 200)
             "visited_count": r.visited_count, "date_of_birth": r.date_of_birth, "gender": r.gender,
             "age": age_from_dob(r.date_of_birth), "status": r.status, "created_at": r.created_at,
             "department_name": r.department_name, "doctor_name": r.doctor_name,
+            "duplicate_of_patient_id": r.duplicate_of_patient_id, "duplicate_flag_reason": r.duplicate_flag_reason,
         }
         for r in rows
     ]
@@ -527,6 +530,75 @@ def find_potential_duplicate_patient(
     return dict(row._mapping) if row else None
 
 
+# Which of the 4 identity fields this hospital's staff see named in a flag
+# reason -- kept in this fixed order so "matches on X, Y, Z" always reads
+# name -> phone -> date of birth -> gender, not whatever order a dict
+# happened to iterate in.
+_DUPLICATE_FLAG_FIELDS = ("name", "phone", "date of birth", "gender")
+
+
+def _flag_duplicate_if_matches(
+    conn, hospital_id: int, patient_id: int, name: str | None, phone: str | None,
+    date_of_birth: str | None, gender: str | None,
+) -> None:
+    """Patients page follow-up (Section 0): call this right after a BRAND-NEW
+    `patients` row is inserted (both _upsert_patient()'s fresh-INSERT branch,
+    db/repositories/appointments.py, and create_patient_profile() below) --
+    never on an update to an existing row, which already has its own settled
+    identity. Scans this hospital's other ACTIVE patients (same status scope
+    find_potential_duplicate_patient() above uses) for one matching the new
+    row on at least 3 of {name, phone, date_of_birth, gender}; if found,
+    stamps duplicate_of_patient_id/duplicate_flag_reason on the NEW row so
+    staff can review it on the patient list -- purely informational, no
+    merge/dismiss action yet.
+
+    Unlike find_potential_duplicate_patient()'s all-4-exact check (which
+    runs BEFORE creation, to offer linking instead), this is a softer,
+    after-the-fact signal: a field only counts as matching, or as a
+    genuinely differing field named in the reason, when BOTH sides have a
+    real value for it -- missing data on either side is simply excluded
+    from the comparison (same None-tolerance reasoning as that function's
+    own docstring), so an incomplete profile can't itself manufacture a
+    false flag. name/gender compare case/whitespace-insensitively; phone/
+    date_of_birth compare exactly. When more than one existing patient
+    reaches the 3-of-4 threshold, the one matching the MOST fields wins
+    (ties broken by lowest id, i.e. the oldest record)."""
+    if not phone and not name and not date_of_birth and not gender:
+        return
+    rows = conn.execute(
+        "SELECT id, name, phone, date_of_birth, gender, patient_display_id FROM patients "
+        "WHERE hospital_id = ? AND status = 'active' AND id != ? ORDER BY id",
+        (hospital_id, patient_id),
+    ).fetchall()
+    if not rows:
+        return
+
+    def _norm(value: str | None) -> str | None:
+        return (value or "").strip().lower() or None
+
+    mine = (_norm(name), phone or None, date_of_birth or None, _norm(gender))
+    best: tuple[int, list[str], list[str], object] | None = None
+    for row in rows:
+        theirs = (_norm(row["name"]), row["phone"] or None, row["date_of_birth"] or None, _norm(row["gender"]))
+        matched, differing = [], []
+        for label, mine_value, their_value in zip(_DUPLICATE_FLAG_FIELDS, mine, theirs):
+            if mine_value is None or their_value is None:
+                continue
+            (matched if mine_value == their_value else differing).append(label)
+        if len(matched) >= 3 and (best is None or len(matched) > best[0]):
+            best = (len(matched), matched, differing, row)
+    if best is None:
+        return
+    _, matched, differing, row = best
+    reason = f"Matches patient {row['patient_display_id'] or row['id']} on {', '.join(matched)}"
+    if differing:
+        reason += f" -- {', '.join(differing)} differs"
+    conn.execute(
+        "UPDATE patients SET duplicate_of_patient_id = ?, duplicate_flag_reason = ? WHERE id = ?",
+        (row["id"], reason, patient_id),
+    )
+
+
 def create_patient_profile(
     hospital_id: int, phone: str, name: str, date_of_birth: str | None, relationship_label: str | None = None,
     gender: str | None = None, contact_phone: str | None = None,
@@ -584,6 +656,7 @@ def create_patient_profile(
             "UPDATE patients SET patient_display_id = ?, mrn = ? WHERE id = ?", (display_id, mrn, patient_id),
         )
         _link_patient_under_cap(conn, hospital_id, phone, patient_id, relationship_label)
+        _flag_duplicate_if_matches(conn, hospital_id, patient_id, name, contact_phone or phone, date_of_birth, gender)
         conn.execute("COMMIT")
     except BaseException:
         try:

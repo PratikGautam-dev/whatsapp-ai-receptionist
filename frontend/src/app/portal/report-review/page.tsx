@@ -131,25 +131,22 @@ export default function ReportReviewPage() {
                   </div>
                 </div>
 
-                {filteredReports.length === 0 ? (
-                  <p className="py-space-4 text-center text-[13px] text-ink-400">No reports match your search/filters.</p>
-                ) : (
-                  <DataTable
-                    columns={createReportColumns({
-                      onSelect: (r) => setSelectedId(r.id),
-                      onApprove: handleApprove,
-                      onReturn: handleReturn,
-                      onDelete: handleDelete,
-                      onToggleUrgent: handleToggleUrgent,
-                    })}
-                    data={filteredReports}
-                    getRowId={(r) => String(r.id)}
-                    onRowClick={(r) => setSelectedId(r.id)}
-                    rowClassName={(r) => (r.id === selected?.id ? "bg-brand-50" : "")}
-                    pageSize={10}
-                    pageSizeOptions={[10, 25, 50]}
-                  />
-                )}
+                <DataTable
+                  columns={createReportColumns({
+                    onSelect: (r) => setSelectedId(r.id),
+                    onApprove: handleApprove,
+                    onReturn: handleReturn,
+                    onDelete: handleDelete,
+                    onToggleUrgent: handleToggleUrgent,
+                  })}
+                  data={filteredReports}
+                  getRowId={(r) => String(r.id)}
+                  onRowClick={(r) => setSelectedId(r.id)}
+                  rowClassName={(r) => (r.id === selected?.id ? "bg-brand-50" : "")}
+                  pageSize={10}
+                  pageSizeOptions={[10, 25, 50]}
+                  emptyMessage="No reports match your search/filters."
+                />
               </Card>
 
               <div className="mt-space-4 grid grid-cols-1 gap-space-4 md:grid-cols-2">

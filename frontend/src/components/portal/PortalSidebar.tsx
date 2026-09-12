@@ -2,6 +2,7 @@
 
 import {
   BarChart3,
+  BedDouble,
   CalendarCheck,
   CalendarClock,
   ChevronsUpDown,
@@ -41,20 +42,26 @@ const ROLE_LABEL: Record<string, string> = {
 // below is deliberate follow-up work, not done here). Items with no href
 // render as disabled "Coming soon" rows (see the .filter/.map below) --
 // there's no backend yet for billing or report analytics. Leave requests
-// (migration 20260912065049) is real now. Doctor appointments and
-// Diagnostic & lab test appointments share the "appointments" permission --
-// both are views over the same underlying appointment list, just scoped to
-// a different appointment_type_id category (useAppointments' `category`
-// param). Report review (/portal/report-review) is a real route now too,
-// but frontend-only mock data by explicit instruction -- there's no
+// (migration 20260912065049) is real now. Doctor appointments, Diagnostic &
+// lab test appointments, and Daycare appointments all share the
+// "appointments" permission -- each is a view over the same underlying
+// appointment list, just scoped to a different appointment_type_id category
+// (useAppointments' `category` param). Daycare (its own sidebar section,
+// pulled out of what used to be lumped under "diagnostic" -- see
+// _apply_category_filter's own comment) is real, backed by the Daycare/
+// Procedure rebuild's already-existing approve/reject/advance-status/
+// reschedule-approval routes, which had no portal page wired to them until
+// now. Report review (/portal/report-review) is a real route now too, but
+// frontend-only mock data by explicit instruction -- there's no
 // role_permissions row for "report-review" (no backend page-key exists for
 // it), so it's listed in NO_PERMISSION_GATE_KEYS below to stay visible to
 // every signed-in role rather than being hidden by a permission lookup that
 // can never succeed.
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/portal/dashboard", pageKey: "dashboard" },
-  { key: "appointments", label: "Doctor appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
-  { key: "diagnostic", label: "Diagnostic & lab appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
+  { key: "appointments", label: "Doctor Appointments", icon: CalendarCheck, href: "/portal/appointments", pageKey: "appointments" },
+  { key: "diagnostic", label: "Lab & Diagnostic Appointments", icon: FlaskConical, href: "/portal/appointments/diagnostic", pageKey: "appointments" },
+  { key: "daycare", label: "Daycare Appointments", icon: BedDouble, href: "/portal/appointments/daycare", pageKey: "appointments" },
   { key: "report-review", label: "Report review", icon: ClipboardCheck, href: "/portal/report-review", pageKey: "report-review" },
   { key: "patients", label: "Patients", icon: Users, href: "/portal/patients", pageKey: "patients" },
   { key: "doctors", label: "Doctors", icon: Stethoscope, href: "/portal/doctors", pageKey: "doctors" },

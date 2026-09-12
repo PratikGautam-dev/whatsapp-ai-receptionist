@@ -1,13 +1,5 @@
 import { z } from "zod";
-
-// Mirrors newBooking.ts's phoneSchema exactly -- same backend db.is_valid_phone()
-// contract, just duplicated rather than shared since the two schemas' other
-// fields (department/doctor vs. tests) don't overlap.
-const phoneSchema = z
-  .string()
-  .trim()
-  .min(1, "Patient phone is required.")
-  .refine((v) => /\d/.test(v), "Patient phone must contain at least one digit.");
+import { patientDateOfBirthSchema, patientGenderSchema, patientNameSchema, patientPhoneSchema } from "./patientInfo";
 
 // Mirrors the WhatsApp Lab Test flow's own basket shape (flows/booking/
 // types/lab.py): test_ids is a list, not a scalar -- a lab-category booking
@@ -16,8 +8,10 @@ const phoneSchema = z
 // (length-1 list), enforced server-side alongside the mixed-category check.
 export const newTestBookingSchema = z
   .object({
-    patient_name: z.string().trim().optional(),
-    patient_phone: phoneSchema,
+    patient_name: patientNameSchema,
+    patient_phone: patientPhoneSchema,
+    patient_date_of_birth: patientDateOfBirthSchema,
+    patient_gender: patientGenderSchema,
     test_ids: z.array(z.number()).min(1, "Choose at least one test."),
     slot_id: z.string().trim().min(1, "Choose an available slot."),
     collection_method: z.enum(["visit", "home"]).optional(),

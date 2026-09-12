@@ -11,7 +11,7 @@ router = APIRouter()
 
 # Same short-TTL, no-invalidation, two-tier (local dict in front of Redis)
 # cache portal/routes/bookings.py's calendar widget uses. This endpoint runs
-# 7+ queries per request (get_patient_by_phone alone runs once per recent
+# 7+ queries per request (get_patient_by_phone alone runs once per today's
 # appointment row) and is hit both by a fresh page visit AND the frontend's
 # own 20s poll while mounted -- TTL matches that poll interval so switching
 # away and back (or a second staff member viewing at the same time) returns
@@ -75,7 +75,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
     staffing = db.get_staffing_stats(hospital.id)
     weekly_counts = db.get_weekly_appointment_counts(hospital.id)
     dept_breakdown = db.get_appointments_by_department(hospital.id)
-    recent_appointments = db.get_all_appointments_for_hospital(hospital.id, limit=10)
+    today_appointments = db.get_todays_appointments_for_hospital(hospital.id)
     activity_feed = db.get_recent_activity_feed(hospital.id, limit=10)
     recent_patients = db.get_recent_patients(hospital.id, limit=5)
 
@@ -86,7 +86,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
         "weekly_counts": weekly_counts,
         "department_breakdown": dept_breakdown,
         "recent_patients": recent_patients,
-        "recent_appointments": [
+        "today_appointments": [
             {
                 "id": a.id,
                 "phone": a.phone,
@@ -112,7 +112,7 @@ async def portal_dashboard(authorization: str | None = Header(default=None)):
                 "appointment_type_id": a.appointment_type_id,
                 "video_link": a.video_link,
             }
-            for a in recent_appointments
+            for a in today_appointments
         ],
         "activity_feed": [
             {

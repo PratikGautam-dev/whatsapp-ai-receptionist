@@ -31,6 +31,13 @@ type Appointment = {
 // from a dashboard preview row.
 const columns: ColumnDef<Appointment>[] = [
   {
+    id: "reference_id",
+    header: "Appointment ID",
+    cell: ({ row }) => (
+      <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">{row.original.reference_id || "—"}</span>
+    ),
+  },
+  {
     id: "scheduled_at",
     header: "Time",
     cell: ({ row }) => (
@@ -117,17 +124,17 @@ const columns: ColumnDef<Appointment>[] = [
   },
 ];
 
-export function RecentAppointmentsTable({ appointments }: { appointments: Appointment[] }) {
+export function TodaysAppointmentsTable({ appointments }: { appointments: Appointment[] }) {
   return (
     <Card className="p-space-4">
       <div className="mb-space-3 flex items-center justify-between">
-        <h3 className="text-label font-bold text-ink-900">Recent appointments</h3>
+        <h3 className="text-label font-bold text-ink-900">Today&apos;s appointments</h3>
         <Link href="/portal/appointments" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
           View all appointments →
         </Link>
       </div>
       {appointments.length === 0 ? (
-        <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments yet.</p>
+        <p className="py-space-4 text-center text-[13px] text-ink-400">No appointments today.</p>
       ) : (
         <DataTable columns={columns} data={appointments} getRowId={(a) => String(a.id)} />
       )}

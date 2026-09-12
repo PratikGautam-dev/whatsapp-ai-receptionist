@@ -55,7 +55,17 @@ type DataTableProps<TData> = {
    * onClick(e) => e.stopPropagation() to opt out, same as this app's
    * hand-rolled tables already did. */
   onRowClick?: (row: TData) => void;
-  emptyMessage?: string;
+  emptyMessage?: React.ReactNode;
+  /** Shows `loadingMessage` in place of a row instead of `emptyMessage` --
+   * pass this (with `data={[]}` or whatever's fetched so far) while a
+   * page's own fetch is still in flight, so the table's header row (and the
+   * rest of the page around it) stays on screen the whole time instead of
+   * the caller swapping the whole table out for a bare "Loading…"
+   * paragraph. The single place this distinction is drawn, rather than
+   * every list page owning its own loading/empty ternary in front of
+   * <DataTable>. */
+  loading?: boolean;
+  loadingMessage?: string;
   /** Extra classes on the scroll container around <Table> -- e.g. a fixed
    * max-height for a small preview list (DoctorCsvImport's CSV row
    * preview), which needs its own vertical scroll independent of the page. */
@@ -119,6 +129,8 @@ export function DataTable<TData>({
   rowClassName,
   onRowClick,
   emptyMessage = "No results.",
+  loading = false,
+  loadingMessage = "Loading…",
   containerClassName,
   stickyHeader = false,
   enableColumnVisibility = false,
@@ -192,11 +204,11 @@ export function DataTable<TData>({
             </TableRow>
           ))}
         </TableHeader>
-        {rows.length === 0 ? (
+        {loading || rows.length === 0 ? (
           <TableBody>
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={columns.length} className="py-space-4 text-center text-ink-400">
-                {emptyMessage}
+                {loading ? loadingMessage : emptyMessage}
               </TableCell>
             </TableRow>
           </TableBody>

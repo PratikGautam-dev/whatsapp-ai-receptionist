@@ -63,26 +63,34 @@ type CreateAppointmentColumnsOptions = {
 // -- a small icon per type so the "Appointment Type" cell reads at a glance,
 // same idea as the reference mockup's icon+label cells. Exported so any
 // other table showing this same icon+label style (e.g. the dashboard's
-// RecentAppointmentsTable) reuses it rather than defining its own map --
+// TodaysAppointmentsTable) reuses it rather than defining its own map --
 // falls back to CalendarCheck for a type with no icon of its own
 // (diagnostic/lab/daycare/second_opinion, which never appear on this
 // doctor-appointments-only page but can elsewhere).
-export const TYPE_ICONS: Record<string, LucideIcon> = { new: CalendarCheck, followup: RotateCcw, tele: Video };
-
+export const TYPE_ICONS: Record<string, LucideIcon> = {
+  new: CalendarCheck,
+  followup: RotateCcw,
+  tele: Video,
+};
 
 export function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
   const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || phone.slice(-2);
+  return (
+    ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() ||
+    phone.slice(-2)
+  );
 }
 
 /** Column definitions for the /portal/appointments (Doctor appointments)
  * DataTable -- deliberately lean, matching the reference mockup's columns
- * rather than every field this app tracks (Reference/Patient ID/Booked-at/
- * Source stay reachable on the appointment detail page instead). No lab/
- * diagnostic columns -- this table is doctor-appointments-only, so
- * lab_status is always null here anyway. Attendance marking (Mark attended/
- * no-show) moved into the Actions menu instead of its own column. */
+ * plus a leading Appointment ID (reference_id) column and both Appointment
+ * time (scheduled_at) and Booked at (created_at), rather than every field
+ * this app tracks (Patient ID/Source stay reachable on the appointment
+ * detail page instead). No lab/diagnostic columns -- this table is
+ * doctor-appointments-only, so lab_status is always null here anyway.
+ * Attendance marking (Mark attended/no-show) moved into the Actions menu
+ * instead of its own column. */
 export function createAppointmentColumns({
   selected,
   toggleSelected,
@@ -131,12 +139,24 @@ export function createAppointmentColumns({
       },
     },
     {
-      id: "scheduled_at",
-      header: "Time",
+      id: "reference_id",
+      header: "Appointment ID",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-ink-600">{formatShortDateTime(row.original.scheduled_at)}</span>
+        <span className="whitespace-nowrap font-mono text-[12px] text-ink-600">
+          {row.original.reference_id || "—"}
+        </span>
       ),
     },
+    {
+      id: "scheduled_at",
+      header: "Appointment time",
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap tabular-nums text-ink-600">
+          {formatShortDateTime(row.original.scheduled_at)}
+        </span>
+      ),
+    },
+
     {
       id: "patient",
       header: "Patient",
@@ -153,8 +173,12 @@ export function createAppointmentColumns({
               {initials(a.patient_name, a.phone)}
             </span>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-ink-900">{a.patient_name || a.phone}</p>
-              {a.patient_name && <p className="truncate text-[11.5px] text-ink-400">{a.phone}</p>}
+              <p className="truncate font-semibold text-ink-900">
+                {a.patient_name || a.phone}
+              </p>
+              {a.patient_name && (
+                <p className="truncate text-[11.5px] text-ink-400">{a.phone}</p>
+              )}
             </div>
           </div>
         );
@@ -163,23 +187,33 @@ export function createAppointmentColumns({
     {
       id: "doctor_name",
       header: "Doctor",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.doctor_name || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">{row.original.doctor_name || "—"}</span>
+      ),
     },
     {
       id: "department_name",
       header: "Department",
-      cell: ({ row }) => <span className="text-ink-600">{row.original.department_name || "—"}</span>,
+      cell: ({ row }) => (
+        <span className="text-ink-600">
+          {row.original.department_name || "—"}
+        </span>
+      ),
     },
     {
       id: "type",
       header: "Appointment type",
       cell: ({ row }) => {
         const a = row.original;
-        const Icon = (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) || CalendarCheck;
+        const Icon =
+          (a.appointment_type_id && TYPE_ICONS[a.appointment_type_id]) ||
+          CalendarCheck;
         return (
           <span className="inline-flex items-center gap-space-2 text-ink-600">
             <Icon size={14} strokeWidth={2} className="shrink-0 text-ink-400" />
-            {a.appointment_type_id ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id : "Consultation"}
+            {a.appointment_type_id
+              ? TYPE_LABELS[a.appointment_type_id] || a.appointment_type_id
+              : "Consultation"}
           </span>
         );
       },
@@ -208,7 +242,12 @@ export function createAppointmentColumns({
         // mockup's "Room / Mode" column, this never shows a room.
         if (a.appointment_type_id === "tele") {
           return a.video_link ? (
-            <a href={a.video_link} target="_blank" rel="noopener noreferrer" className="text-[12.5px] font-semibold text-brand-600 hover:underline">
+            <a
+              href={a.video_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[12.5px] font-semibold text-brand-600 hover:underline"
+            >
               Video · Join
             </a>
           ) : (
@@ -216,6 +255,18 @@ export function createAppointmentColumns({
           );
         }
         return <span className="text-[12.5px] text-ink-600">In-person</span>;
+      },
+    },
+    {
+      id: "created_at",
+      header: "Booked at",
+      cell: ({ row }) => {
+        const createdAt = row.original.created_at;
+        return (
+          <span className="whitespace-nowrap tabular-nums text-ink-600">
+            {createdAt ? formatShortDateTime(createdAt) : "—"}
+          </span>
+        );
       },
     },
     {

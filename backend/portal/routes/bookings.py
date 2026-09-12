@@ -164,6 +164,7 @@ async def portal_bookings(
     category: str | None = Query(default=None),
     status: str | None = Query(default=None),
     type: str | None = Query(default=None),
+    lab_status: str | None = Query(default=None),
     when: str | None = Query(default=None),
     search: str | None = Query(default=None),
 ):
@@ -171,8 +172,8 @@ async def portal_bookings(
     route is now shared by the doctor portal too, and a doctor must never
     see another doctor's patients/appointments through it.
 
-    status/type/search/page/limit are all applied server-side (see
-    get_appointments_page) -- the portal's appointments/diagnostic-
+    status/type/lab_status/search/page/limit are all applied server-side
+    (see get_appointments_page) -- the portal's appointments/diagnostic-
     appointments list pages send these from their FilterSelect dropdowns
     and search box instead of filtering the old unpaginated 500-row dump
     client-side."""
@@ -182,7 +183,7 @@ async def portal_bookings(
     scoped_doctor_id = doctor_id if (role == "doctor" and doctor_id is not None) else None
     appointments, total = db.get_appointments_page(
         hospital.id, doctor_id=scoped_doctor_id, category=category, status=status, appointment_type_id=type,
-        when=when, search=search, page=page, limit=limit,
+        lab_status=lab_status, when=when, search=search, page=page, limit=limit,
     )
     validity_days = db.get_followup_validity_days(hospital.id)
     return JSONResponse({
@@ -781,33 +782,41 @@ async def portal_new_booking_context(authorization: str | None = Header(default=
 async def portal_new_booking_slots(
     doctor_id: str | None = Query(default=None),
     diagnostic_test_id: str | None = Query(default=None),
+    procedure_id: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
     """Lazy, single-entity sibling of /new-booking/context above -- returns
-    available slots for exactly ONE doctor or ONE diagnostic test, fetched on
-    demand (when the user picks one in NewBookingDialog/NewTestBookingDialog,
-    or when RescheduleDialog/the patient page's follow-up "Book now" panel
-    opens for an appointment/visit that already has a fixed doctor or test)
-    instead of _build_new_booking_context() eager-loading slots for every
-    doctor/test up front (see that function's own docstring for the cost
-    that turned out to have). Wraps the exact same connector.
-    get_available_slots()/get_available_resource_slots() calls that eager
-    loop used to run per item."""
+    available slots for exactly ONE doctor, ONE diagnostic test, or ONE
+    (instant-booking) procedure, fetched on demand (when the user picks one
+    in NewBookingDialog/NewTestBookingDialog/NewDaycareBookingDialog, or when
+    RescheduleDialog/the patient page's follow-up "Book now" panel opens for
+    an appointment/visit that already has a fixed doctor or test) instead of
+    _build_new_booking_context() eager-loading slots for every doctor/test up
+    front (see that function's own docstring for the cost that turned out to
+    have). Wraps the exact same connector.get_available_slots()/
+    get_available_resource_slots()/get_procedure_available_slots() calls
+    that eager loop used to run per item."""
     hospital = _authenticate(authorization)
     if hospital is None:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
-    if not doctor_id and not diagnostic_test_id:
-        return JSONResponse({"error": "doctor_id or diagnostic_test_id is required."}, status_code=400)
+    if not doctor_id and not diagnostic_test_id and not procedure_id:
+        return JSONResponse({"error": "doctor_id, diagnostic_test_id, or procedure_id is required."}, status_code=400)
 
     connector = connectors.get_connector_for_hospital(hospital)
     if doctor_id:
         slots = connector.get_available_slots(hospital.id, doctor_id)
-    else:
+    elif diagnostic_test_id:
         try:
             resource_id_int = int(diagnostic_test_id)
         except ValueError:
             return JSONResponse({"error": "Invalid diagnostic_test_id."}, status_code=400)
         slots = connector.get_available_resource_slots(hospital.id, resource_id_int)
+    else:
+        try:
+            procedure_id_int = int(procedure_id)
+        except ValueError:
+            return JSONResponse({"error": "Invalid procedure_id."}, status_code=400)
+        slots = connector.get_procedure_available_slots(hospital.id, procedure_id_int)
 
     by_date: dict[str, list[dict]] = {}
     for s in slots:
@@ -823,6 +832,8 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
 
     patient_name = (payload.get("patient_name") or "").strip()
     patient_phone = (payload.get("patient_phone") or "").strip()
+    patient_date_of_birth = (payload.get("patient_date_of_birth") or "").strip() or None
+    patient_gender = (payload.get("patient_gender") or "").strip() or None
     department_id = payload.get("department_id") or ""
     doctor_id = payload.get("doctor_id") or ""
     slot_id = payload.get("slot_id") or ""
@@ -854,6 +865,7 @@ async def portal_create_new_booking(payload: dict, authorization: str | None = H
         created = connector.create_booking(
             hospital.id, patient_phone, department_id, doctor_id, scheduled_at,
             source=db.SOURCE_STAFF, patient_name=patient_name or None,
+            patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
         )
     except db.QuotaExceededError as e:
         return JSONResponse({"errors": [str(e)]}, status_code=400)
@@ -898,6 +910,8 @@ async def portal_create_new_test_booking(payload: dict, authorization: str | Non
 
     patient_name = (payload.get("patient_name") or "").strip()
     patient_phone = (payload.get("patient_phone") or "").strip()
+    patient_date_of_birth = (payload.get("patient_date_of_birth") or "").strip() or None
+    patient_gender = (payload.get("patient_gender") or "").strip() or None
     test_ids_raw = payload.get("test_ids") or []
     slot_id = payload.get("slot_id") or ""
     collection_method = payload.get("collection_method") or None
@@ -970,6 +984,7 @@ async def portal_create_new_test_booking(payload: dict, authorization: str | Non
         created = connector.create_booking(
             hospital.id, patient_phone, None, None, scheduled_at,
             source=db.SOURCE_STAFF, patient_name=patient_name or None,
+            patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
             # appointment_type_id -- anchor["category"] is "diagnostic" or
             # "lab" (diagnostic_tests.category's own CHECK constraint),
             # which is exactly what _apply_category_filter()'s "diagnostic"
@@ -1024,6 +1039,94 @@ async def portal_create_new_test_booking(payload: dict, authorization: str | Non
     )
 
     return JSONResponse({"ok": True})
+
+
+@router.get("/api/portal/new-daycare-booking/context")
+async def portal_new_daycare_booking_context(authorization: str | None = Header(default=None)):
+    """Daycare/Procedure sibling of /new-booking/context above -- just the
+    active procedure catalog (NewDaycareBookingDialog's picker), the same
+    connector.get_procedures() list the WhatsApp flow's own Step 1 already
+    reads from."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    connector = connectors.get_connector_for_hospital(hospital)
+    return JSONResponse({"procedures": connector.get_procedures(hospital.id)})
+
+
+@router.post("/api/portal/new-daycare-booking")
+async def portal_create_new_daycare_booking(payload: dict, authorization: str | None = Header(default=None)):
+    """Daycare/Procedure sibling of portal_create_new_test_booking() above --
+    same dialog-on-a-page shape, staff-initiated instead of patient-
+    initiated over WhatsApp. Branches on the picked procedure's own
+    booking_mode, same split the WhatsApp flow's Step 1 selection makes: an
+    "instant" procedure needs a slot_id and books it straight away
+    (connector.create_procedure_booking); an "approval_required" one takes
+    no slot at all -- it's only a request (connector.create_procedure_
+    request), which then shows up in the Daycare appointments page's own
+    approval queue for staff to Approve/Reject before anyone (patient or
+    staff) can come back and pick a real slot."""
+    hospital = _authenticate(authorization)
+    if hospital is None:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    patient_name = (payload.get("patient_name") or "").strip()
+    patient_phone = (payload.get("patient_phone") or "").strip()
+    patient_date_of_birth = (payload.get("patient_date_of_birth") or "").strip() or None
+    patient_gender = (payload.get("patient_gender") or "").strip() or None
+    slot_id = payload.get("slot_id") or ""
+
+    errors = []
+    if not db.is_valid_phone(patient_phone):
+        errors.append("Patient phone is required and must contain at least one digit.")
+
+    procedure = None
+    try:
+        procedure_id = int(payload.get("procedure_id"))
+    except (TypeError, ValueError):
+        procedure_id = None
+    if procedure_id is not None:
+        procedure = db.get_procedure(hospital.id, procedure_id)
+    if procedure is None or not procedure["is_active"]:
+        errors.append("Choose a valid procedure.")
+
+    is_instant = procedure is not None and procedure["booking_mode"] == "instant"
+    scheduled_at = None
+    if is_instant:
+        if not slot_id:
+            errors.append("Choose an available slot.")
+        else:
+            try:
+                scheduled_at = datetime.fromisoformat(slot_id)
+            except ValueError:
+                errors.append("That slot is no longer valid — pick another.")
+
+    if errors:
+        return JSONResponse({"errors": errors}, status_code=400)
+    assert procedure is not None  # only left None when "Choose a valid procedure." was added above
+
+    connector = connectors.get_connector_for_hospital(hospital)
+    try:
+        if is_instant:
+            assert scheduled_at is not None  # only left None when "Choose an available slot." was added above
+            created = connector.create_procedure_booking(
+                hospital.id, patient_phone, procedure["id"], scheduled_at, patient_name=patient_name or None,
+                patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
+            )
+        else:
+            created = connector.create_procedure_request(
+                hospital.id, patient_phone, procedure["id"], patient_name=patient_name or None,
+                patient_date_of_birth=patient_date_of_birth, patient_gender=patient_gender,
+            )
+    except IntegrityError:
+        return JSONResponse({"errors": ["That slot was just taken — please pick another."]}, status_code=400)
+
+    db.record_audit_log(
+        "portal", hospital.id, "tenant portal", "booking.procedure_create",
+        entity_type="appointment", entity_id=str(created.id),
+        after={"procedure_id": procedure["id"], "procedure_status": created.procedure_status},
+    )
+    return JSONResponse({"ok": True, "procedure_status": created.procedure_status})
 
 
 # --- Follow-up validity override (migration 0024) -- both routes below are
